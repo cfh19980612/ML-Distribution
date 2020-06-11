@@ -160,13 +160,13 @@ def load_cora_data(list1, list2):
     # src, dst = g.all_edges()
     # src = src.detach().numpy()
     # dst = dst.detach().numpy()
-    # edge_list = list(zip(src, dst))  # 边集
+    # edge_list = list(zip(src, dst))  
 
-    g1 = g.subgraph(list1)  # 构建子图架构
-    g1.copy_from_parent()  # 上面只是拓扑结构，现添加特征
+    g1 = g.subgraph(list1)  
+    g1.copy_from_parent()  
     g1.readonly()
-    g2 = g.subgraph(list2)  # 构建子图架构
-    g2.copy_from_parent()  # 上面只是拓扑结构，现添加特征
+    g2 = g.subgraph(list2)  
+    g2.copy_from_parent()  
     g2.readonly()
     g.readonly()
 
@@ -191,7 +191,7 @@ def load_cora_data(list1, list2):
 def runGraph(Model,Graph,args,Optimizer,Labels,Train_nid,pipe):
     loss_fcn = nn.CrossEntropyLoss()
     for epoch in range(args.n_epochs):
-        for nf in dgl.contrib.sampling.NeighborSampler(Graph, args.batch_size,  # 第一个子图
+        for nf in dgl.contrib.sampling.NeighborSampler(Graph, args.batch_size,  
                                                             args.num_neighbors,
                                                             neighbor_type='in',
                                                             shuffle=True,
@@ -202,7 +202,7 @@ def runGraph(Model,Graph,args,Optimizer,Labels,Train_nid,pipe):
             Model.train()
             # forward
             pred = Model(nf)
-            batch_nids = nf.layer_parent_nid(-1).to(device=pred.device, dtype=torch.long)  # 种子节点标号
+            batch_nids = nf.layer_parent_nid(-1).to(device=pred.device, dtype=torch.long)  
             batch_labels = Labels[batch_nids]
             loss = loss_fcn(pred, batch_labels)
             Optimizer.zero_grad()
@@ -243,16 +243,16 @@ def inference(Graph,args,Labels,Test_nid,Train_nid,Train_nid1,Train_nid2,In_feat
                             args.n_layers,
                             F.relu)
 
-        for key, value in p2.items():  # p1等于两个字典平均
+        for key, value in p2.items():  
                 p1[key] = p1[key] * (len(Train_nid1) / len(Train_nid)) + p2[key] * (len(Train_nid2) / len(Train_nid))
 
-            # model1.load_state_dict(p1)  # model1的参数更新为平均参数
-            # model2.load_state_dict(p1)  # model2的参数更新为平均参数
+            # model1.load_state_dict(p1)  
+            # model2.load_state_dict(p1)  
         pipe_1.send(p1)
         pipe_2.send(p1)
         model1 = pipe_1.recv()
         model2 = pipe_2.recv()
-        for infer_param, param in zip(infer_model.parameters(), model1.parameters()):  # 将参数赋值给inference——model
+        for infer_param, param in zip(infer_model.parameters(), model1.parameters()):  
             infer_param.data.copy_(param.data)
 
         num_acc = 0.
@@ -318,7 +318,7 @@ if __name__ == '__main__':
 
     out = [0]
 
-    node_list = list(range(19717))  # 点集
+    node_list = list(range(19717))  
     list1 = node_list[0::2]
     list2 = list(set(node_list) - set(list1))
     g, g1, g2, labels, labels1, labels2, train_nid, train_nid1, train_nid2, test_nid, in_feats, n_classes, n_test_samples = load_cora_data(list1, list2)
@@ -337,63 +337,5 @@ if __name__ == '__main__':
     task1.join()
     task2.join()
     task3.join()
-    # test model
-    # infer_model = GCNInfer(in_feats,
-    #                        args.n_hidden,
-    #                        n_classes,
-    #                        args.n_layers,
-    #                        F.relu)
 
-
-
-
-    # for epoch in range(args.n_epochs):
-    #     # runGraph(model1,g1,args,optimizer1,labels1,train_nid1)
-    #     # runGraph(model2,g2,args,optimizer2,labels1,train_nid1)
-    #     task1.start()
-    #     task2.start()
-    #     task2.join()
-    #     p1 = model1.state_dict()  # 拿到net1参数字典
-    #     p2 = model2.state_dict()  # 拿到net2参数字典
-
-        
-        # for key, value in p2.items():  # p1等于两个字典平均
-        #     p1[key] = p1[key] * (len(train_nid1) / len(train_nid)) + p2[key] * (len(train_nid2) / len(train_nid))
-
-        # model1.load_state_dict(p1)  # model1的参数更新为平均参数
-        # model2.load_state_dict(p1)  # model2的参数更新为平均参数
-
-        # for infer_param, param in zip(infer_model.parameters(), model1.parameters()):  # 将参数赋值给inference——model
-        #     infer_param.data.copy_(param.data)
-
-        # num_acc = 0.
-
-        # for nf in dgl.contrib.sampling.NeighborSampler(g, args.test_batch_size,
-        #                                                g.number_of_nodes(),
-        #                                                neighbor_type='in',
-        #                                                num_workers=32,
-        #                                                num_hops=args.n_layers+1,
-        #                                                seed_nodes=test_nid):
-        #     nf.copy_from_parent()
-        #     infer_model.eval()
-        #     with torch.no_grad():
-        #         pred = infer_model(nf)
-        #         batch_nids = nf.layer_parent_nid(-1).to(device=pred.device, dtype=torch.long)
-        #         batch_labels = labels[batch_nids]
-        #         num_acc += (pred.argmax(dim=1) == batch_labels).sum().cpu().item()
-        # acc = round(num_acc/n_test_samples,4)
-        # print("round: ",epoch," Test Accuracy :", acc)
-
-
-    # thread1 = myThread(1, 'Thread-1',2,0)
-    # thread2 = myThread(2, 'Thread-2',2,1)
-
-    # thread1.start()
-    # thread2.start()
-
-    # threads.append(thread1)
-    # threads.append(thread2)
-    # for t in threads:
-    #     t.join()
-    # print ('Exiting Main Thread')
 
