@@ -21,22 +21,22 @@ from DQN_copy import DeepQNetwork
 
 acc=0
 
-class myThread (threading.Thread):
-    def __init__(self, threadID, name,num_neighbors,flag):
-        threading.Thread.__init__(self)
-        self.threadID = threadID
-        self.name = name
-        self.num_neighbors = num_neighbors
-        self.flag = flag
-        #self.counter = counter
-    def run(self):
-        print ('Starting ' + self.name)
-        threadLock.acquire()
-        start(self.name,self.num_neighbors,self.flag)
-        threadLock.release()
+# class myThread (threading.Thread):
+#     def __init__(self, threadID, name,num_neighbors,flag):
+#         threading.Thread.__init__(self)
+#         self.threadID = threadID
+#         self.name = name
+#         self.num_neighbors = num_neighbors
+#         self.flag = flag
+#         #self.counter = counter
+#     def run(self):
+#         print ('Starting ' + self.name)
+#         threadLock.acquire()
+#         start(self.name,self.num_neighbors,self.flag)
+#         threadLock.release()
 
-threadLock = threading.Lock()
-threads = []
+# threadLock = threading.Lock()
+# threads = []
 
 class NodeUpdate(nn.Module):
     def __init__(self, in_feats, out_feats, activation=None, test=False, concat=False):
