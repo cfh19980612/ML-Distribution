@@ -18,6 +18,8 @@ import multiprocessing as mp
 import psutil
 import os
 from DQN_copy import DeepQNetwork
+import time 
+import datetime
 
 acc=0
 
@@ -220,7 +222,7 @@ def runGraph(Model,Graph,args,Optimizer,Labels,Train_nid,pipe):
         p1 = pipe.recv()
         Model.load_state_dict(p1)
         pipe.send(Model)
-        print(os.getpid()," in round ",epoch,' compeleted')
+        print(os.getpid()," in round ",epoch,' completed')
 
 
 
@@ -247,6 +249,7 @@ def inference(Graph,args,Labels,Test_nid,Train_nid,Train_nid1,Train_nid2,In_feat
     step = 0
     RL = DeepQNetwork(6,1, output_graph=False)
     for epoch in range(args.n_epochs):
+        time_now = datetime.datetime.now()
         out = [0]
         s = [0]
         s_ = [0]
@@ -304,7 +307,11 @@ def inference(Graph,args,Labels,Test_nid,Train_nid,Train_nid1,Train_nid2,In_feat
         acc_now = acc_next
         out.append(acc_now)
         step += 1
+        time_next = datetime.datetime.now()
+        print('Time cost: ',round((time_next-time_now).microseconds,4))
         print("round: ",epoch," Test Accuracy :", acc_now," action:",num_neighbors)
+    print('Training completed!')
+
 
     # dataframe = pd.DataFrame({'acc':out})
     # dataframe.to_csv("non-dqn-4.csv",header = False,index=False,sep=',')

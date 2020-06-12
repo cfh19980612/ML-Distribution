@@ -17,6 +17,8 @@ import threading
 import multiprocessing as mp
 import psutil
 import os
+import time 
+import datetime
 
 acc=0
 
@@ -137,8 +139,8 @@ class GCNInfer(nn.Module):
 # create the subgraph
 def load_cora_data(list1, list2):
     
-    # data = citegrh.load_pubmed()
-    data = RedditDataset(self_loop=True)
+    data = citegrh.load_pubmed()
+    #data = RedditDataset(self_loop=True)
 
     features = torch.FloatTensor(data.features)
     labels = torch.LongTensor(data.labels)
@@ -237,7 +239,7 @@ def genGraph(args,Graph,Labels,Train_nid,In_feats,N_classes,N_test_samples):
     return model, optimizer
 
 def inference(Graph,args,Labels,Test_nid,Train_nid,Train_nid1,Train_nid2,In_feats,N_classes,N_test_samples,pipe_1,pipe_2):
-
+    time_now = datetime.datetime.now()
     for epoch in range(args.n_epochs):
         p1 = pipe_1.recv()
         p2 = pipe_2.recv()
@@ -276,13 +278,17 @@ def inference(Graph,args,Labels,Test_nid,Train_nid,Train_nid1,Train_nid2,In_feat
                 batch_labels = Labels[batch_nids]
                 num_acc += (pred.argmax(dim=1) == batch_labels).sum().cpu().item()
         acc = round(num_acc/n_test_samples,4)
+        time_next = datetime.datetime.now()
+        print('Time cost: ',round((time_next-time_now).microseconds,4))
+        time_now = time_next
         print("round: ",epoch," Test Accuracy :", acc)
+        
 
     # dataframe = pd.DataFrame({'acc':out})
     # dataframe.to_csv("non-dqn-4.csv",header = False,index=False,sep=',')
 
 
-def Gen_args(num_neighbors):
+def Gen_args(num):
     parser = argparse.ArgumentParser(description='GCN')
     register_data_args(parser)
     parser.add_argument("--dropout", type=float, default=0.5,
@@ -298,7 +304,7 @@ def Gen_args(num_neighbors):
     parser.add_argument("--test-batch-size", type=int, default=1000,
             help="test batch size")
 
-    parser.add_argument("--num-neighbors", type=int, default=num_neighbors,
+    parser.add_argument("--num-neighbors", type=int, default=num,
             help="number of neighbors to be sampled")
 
     parser.add_argument("--n-hidden", type=int, default=16,
@@ -314,7 +320,7 @@ def Gen_args(num_neighbors):
 
 
 if __name__ == '__main__':
-    args = Gen_args(5)   # return the parameters
+    args = Gen_args(6)   # return the parameters
 
     # communication
     pipe1 = mp.Pipe()
@@ -323,7 +329,7 @@ if __name__ == '__main__':
 
     out = [0]
 
-    node_list = list(range(232965))  
+    node_list = list(range(19717))  
     list1 = node_list[0::2]
     list2 = list(set(node_list) - set(list1))
     g, g1, g2, labels, labels1, labels2, train_nid, train_nid1, train_nid2, test_nid, in_feats, n_classes, n_test_samples = load_cora_data(list1, list2)
