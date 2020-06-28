@@ -20,7 +20,9 @@ import psutil
 import os
 import time 
 import datetime
-from PG_torch import PG
+import sys
+sys.path.append("/home/fahao/Py_code/ML-Distribution/Agent")
+from PG import PG
 import math
 from sklearn.decomposition import PCA
 
@@ -356,7 +358,7 @@ def Gen_args(num):
 
 
 if __name__ == '__main__':
-    args = Gen_args(1)   # return the parameters
+    args = Gen_args(200)   # return the parameters
     
     # DQN parameter
     A = 0.7
