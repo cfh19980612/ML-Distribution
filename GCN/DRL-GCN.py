@@ -27,7 +27,6 @@ import math
 from sklearn.decomposition import PCA
 
 acc=0
-
 def pca_svd(data, k):
     X = torch.from_numpy(data)
     X_mean = torch.mean(X, 0)
