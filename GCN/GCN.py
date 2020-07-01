@@ -20,7 +20,6 @@ import psutil
 import os
 import time 
 import datetime
-from PG_torch import PolicyNet
 import math
 
 acc=0
@@ -134,8 +133,8 @@ class GCNInfer(nn.Module):
 
 # create the subgraph
 def load_cora_data(list1, list2, list3, list_test):
-    # data = RedditDataset(self_loop=True)
-    data = citegrh.load_pubmed()
+    data = RedditDataset(self_loop=True)
+    # data = citegrh.load_citeseer()
     features = torch.FloatTensor(data.features)
     labels = torch.LongTensor(data.labels)
     train_mask = torch.BoolTensor(data.train_mask)
@@ -152,7 +151,7 @@ def load_cora_data(list1, list2, list3, list_test):
     norm = 1. / g.in_degrees().float().unsqueeze(1)
     in_feats = features.shape[1]
     n_test_samples = test_mask.int().sum().item()
-    n_test_samples_test = n_test_samples
+    n_test_samples_test = n_test_samples/4
 
     features1 = features[list1]
     norm1 = norm[list1]
@@ -323,21 +322,21 @@ def inference(Graph,infer_model,args,Labels,Test_nid,In_feats,N_classes,N_test_s
 def Gen_args(num):
     parser = argparse.ArgumentParser(description='GCN')
     register_data_args(parser)
-    parser.add_argument("--dropout", type=float, default=0.6,
+    parser.add_argument("--dropout", type=float, default=0.7,
             help="dropout probability")
     parser.add_argument("--gpu", type=int, default=0,
             help="gpu")
-    parser.add_argument("--lr", type=float, default=0.001,
+    parser.add_argument("--lr", type=float, default=0.0001,
             help="learning rate")
-    parser.add_argument("--n-epochs", type=int, default=1000,
+    parser.add_argument("--n-epochs", type=int, default=100,
             help="number of training epochs")
-    parser.add_argument("--batch-size", type=int, default=10,
+    parser.add_argument("--batch-size", type=int, default=1000,
             help="batch size")
     parser.add_argument("--test-batch-size", type=int, default=1000,
             help="test batch size")
     parser.add_argument("--num-neighbors", type=int, default=num,
             help="number of neighbors to be sampled")
-    parser.add_argument("--n-hidden", type=int, default=16,
+    parser.add_argument("--n-hidden", type=int, default=128,
             help="number of hidden gcn units")
     parser.add_argument("--n-layers", type=int, default=1,
             help="number of hidden gcn layers")
@@ -350,7 +349,7 @@ def Gen_args(num):
 
 
 if __name__ == '__main__':
-    args = Gen_args(20000)   # return the parameters
+    args = Gen_args(10)   # return the parameters
     
     # DQN parameter
     A = 0.6
@@ -361,11 +360,11 @@ if __name__ == '__main__':
     time_cost_past = 5
 
     # pubmed 
-    node_list = list(range(19717))  
+    node_list = list(range(232965))  
     list1 = node_list[0::3]
     list2 = node_list[1::3]
     list3 = node_list[2::3]
-    list_test = node_list[0::1]
+    list_test = node_list[0::4]
 
     # GCN parameter
     g, g1, g2, g3, g_test,norm1,norm2,norm3,norm_test,features1,features2,features3,features_test,train_mask,test_mask, labels, labels1, labels2, labels3, labels_test, train_nid, train_nid1, train_nid2, train_nid3, test_nid, test_nid_test, in_feats, n_classes, n_test_samples, n_test_samples_test = load_cora_data(list1, list2, list3, list_test)
@@ -403,7 +402,7 @@ if __name__ == '__main__':
         loss = (loss1 + loss2 + loss3)/3
 
         # time cost
-        time_cost = round((time_cost1+time_cost2+time_cost3)/4,4)
+        time_cost = round((time_cost1+time_cost2+time_cost3)/3,4)
 
         # aggregation
         for key, value in p2.items():  
@@ -417,17 +416,17 @@ if __name__ == '__main__':
             infer_param.data.copy_(param.data)
         
         # test 
-        acc = inference(g,infer_model,args,labels,test_nid,in_feats,n_classes,n_test_samples,cuda)
+        acc = inference(g_test,infer_model,args,labels_test,test_nid_test,in_feats,n_classes,n_test_samples_test,cuda)
 
         out.append(acc)
         time_end = time.time()
-        print(round((time_end - time_now),4))
+        print(loss,round(time_end-time_now,4))
 
-        if acc >= 0.72:
-            print('Training complete in round: ',epoch)
-            break
+        # if acc >= 0.72:
+        #     print('Training complete in round: ',epoch)
+        #     break
     dataframe = pd.DataFrame({'acc':out})
-    dataframe.to_csv("/home/fahao/py_code/GCN-Pubmed/acc_nondqn_111.csv",header = False,index=False,sep=',')
+    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Reddit/acc_nondqn_10.csv",header = False,index=False,sep=',')
 
         
 
@@ -436,5 +435,7 @@ if __name__ == '__main__':
 
 
     
-
+        # if acc >= 0.72:
+        #     print('Training complete in round: ',epoch)
+        #     break
 

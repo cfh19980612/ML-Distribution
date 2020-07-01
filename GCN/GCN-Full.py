@@ -276,7 +276,7 @@ def main(args):
         out.append(acc)
         time_now = time_next
     dataframe = pd.DataFrame({'acc':out})
-    dataframe.to_csv("loss_nonsplit_citeseer_59.csv",header = False,index=False,sep=',')
+    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Pubmed/acc_full.csv",header = False,index=False,sep=',')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='GCN')
@@ -285,19 +285,19 @@ if __name__ == '__main__':
             help="dropout probability")
     parser.add_argument("--gpu", type=int, default=0,
             help="gpu")
-    parser.add_argument("--lr", type=float, default=0.0005,
+    parser.add_argument("--lr", type=float, default=0.001,
             help="learning rate")
-    parser.add_argument("--n-epochs", type=int, default=200,
+    parser.add_argument("--n-epochs", type=int, default=500,
             help="number of training epochs")
-    parser.add_argument("--batch-size", type=int, default=12,
+    parser.add_argument("--batch-size", type=int, default=1000,
             help="batch size")
-    parser.add_argument("--test-batch-size", type=int, default=5,
+    parser.add_argument("--test-batch-size", type=int, default=10000,
             help="test batch size")
-    parser.add_argument("--num-neighbors", type=int, default=9,
+    parser.add_argument("--num-neighbors", type=int, default=20000,
             help="number of neighbors to be sampled")
-    parser.add_argument("--n-hidden", type=int, default=16,
+    parser.add_argument("--n-hidden", type=int, default=32,
             help="number of hidden gcn units")
-    parser.add_argument("--n-layers", type=int, default=1,
+    parser.add_argument("--n-layers", type=int, default=2,
             help="number of hidden gcn layers")
     parser.add_argument("--self-loop", action='store_true',
             help="graph self-loop (default=False)")
