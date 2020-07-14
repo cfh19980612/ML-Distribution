@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.multiprocessing as mp
+import torch.optim as optim
 from functools import partial
 import dgl
 import dgl.function as fn
@@ -14,15 +15,12 @@ from dgl.data import citation_graph as citegrh
 from dgl.data import RedditDataset
 import pandas as pd
 import networkx as nx
-#import thread
 import threading
-# import multiprocessing as mp
 import psutil
 import os
 import time 
 import datetime
 import math
-import torch.optim as optim
 import sys
 sys.path.append("/home/fahao/Py_code/ML-Distribution/Agent")
 from DDPG import Agent
@@ -60,7 +58,7 @@ class gcnEnv(gym.Env):
         time_cost_past = 5
 
         # pubmed 
-        node_list = list(range(19717))  
+        node_list = list(range(3327))  
         list1 = node_list[0::3]
         list2 = node_list[1::3]
         list3 = node_list[2::3]
@@ -103,11 +101,11 @@ class gcnEnv(gym.Env):
 
 
 
-        self.action_space = 1 # 0, 1, 2，3，4: 不动，上下左右
-        self.observation_space = 57
+        self.action_space = 6 
+        self.observation_space = 228
 
 
-    def step(self, action):
+    def step(self, action, episode):
         
         batch_sampling_method_1 = np.array([])
         batch_sampling_method_2 = np.array([])
@@ -130,10 +128,7 @@ class gcnEnv(gym.Env):
         #         batch_sampling_method_1 = np.append(batch_sampling_method_1, layer_size[layer])
                 # batch_sampling_method = np.append(batch_sampling_method, layer_size[layer])
                 # batch_sampling_method = np.append(batch_sampling_method, layer_size[layer])
-                
-
-
-        
+                  
         # Scale training
         for layer in range(self.args.n_layers):
             for nodes in range(self.g.number_of_nodes()):
@@ -145,16 +140,12 @@ class gcnEnv(gym.Env):
             for nodes in range(self.g.number_of_nodes()):
                 temp3 = math.ceil(self.g.in_degree(nodes) * sampling_3[layer])
                 batch_sampling_method_3 = np.append(batch_sampling_method_1, temp3)
-
-        # for layer in range(args.n_layers):
-        #     for nodes in range(g.number_of_nodes()):
-        #         test_batch_sampling_method = np.append(test_batch_sampling_method, 10000)
         
         
         time_now = time.time()
-        p1, time_cost1, loss1 = runGraph(self.local_model[0],self.g1,self.args,self.optimizer1,self.labels1,self.train_nid1,self.cuda,batch_sampling_method_1)
-        p2, time_cost2, loss2 = runGraph(self.local_model[1],self.g2,self.args,self.optimizer2,self.labels2,self.train_nid2,self.cuda,batch_sampling_method_2)
-        p3, time_cost3, loss3 = runGraph(self.local_model[2],self.g3,self.args,self.optimizer3,self.labels3,self.train_nid3,self.cuda,batch_sampling_method_3)
+        p1, time_cost1, loss1 = runGraph(self.local_model[0],self.g,self.args,self.optimizer1,self.labels,self.train_nid1,self.cuda,batch_sampling_method_1)
+        p2, time_cost2, loss2 = runGraph(self.local_model[1],self.g,self.args,self.optimizer2,self.labels,self.train_nid2,self.cuda,batch_sampling_method_2)
+        p3, time_cost3, loss3 = runGraph(self.local_model[2],self.g,self.args,self.optimizer3,self.labels,self.train_nid3,self.cuda,batch_sampling_method_3)
         
         # get local model for state
         S_local = [0,0,0]
@@ -216,18 +207,13 @@ class gcnEnv(gym.Env):
         s_33 = pca.transform(s_3).flatten()
         s_4 = parm['layers.1.linear.bias'][0::]
 
-
-
         S_global = np.concatenate((s_11,s_2,s_33,s_4),axis=0)
     
-        time_end = time.time()
-        # print(loss,round(time_end-time_now,4))
-        # print(time_cost)
-        reward = pow(64,acc-0.8) - pow(256, 0 - 10*time_cost)
+        reward = pow(32,acc-0.7) - pow(64, 0 - 50*time_cost)
         # reward = pow(64,acc-0.8)
         
         S = np.concatenate((S_local[0],S_local[1],S_local[2],S_global),axis = 0)
-        return S, reward, acc
+        return S, reward, acc, time_cost
     
     def reset(self):
         self.counts = 0
@@ -378,7 +364,7 @@ class GCNInfer(nn.Module):
 # create the subgraph
 def load_cora_data(list1, list2, list3, list_test, args):
     # data = RedditDataset(self_loop=True)
-    data = citegrh.load_pubmed()
+    data = citegrh.load_citeseer()
     features = torch.FloatTensor(data.features)
     labels = torch.LongTensor(data.labels)
     train_mask = torch.BoolTensor(data.train_mask)
@@ -449,19 +435,21 @@ def load_cora_data(list1, list2, list3, list_test, args):
     train_nid3 = []
     test_nid_test = []
 
+
+
     for i in range(len(list1)):
         if list1[i] in train_nid:
-            train_nid1.append(i)
+            train_nid1.append(list1[i])
     train_nid1 = np.array(train_nid1)
 
     for i in range(len(list2)):
         if list2[i] in train_nid:
-            train_nid2.append(i)
+            train_nid2.append(list2[i])
     train_nid2 = np.array(train_nid2)
 
     for i in range(len(list3)):
         if list3[i] in train_nid:
-            train_nid3.append(i)
+            train_nid3.append(list3[i])
     train_nid3 = np.array(train_nid3)
 
     for i in range(len(list_test)):
@@ -481,7 +469,7 @@ def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,sampling):
                                                             expand_factor = sampling,
                                                             neighbor_type='in',
                                                             shuffle=True,
-                                                            num_workers=10,
+                                                            num_workers=32,
                                                             num_hops=args.n_layers+1,
                                                             seed_nodes=train_nid):
         nf.copy_from_parent()
@@ -581,19 +569,19 @@ def Gen_args(num):
     register_data_args(parser)
     parser.add_argument("--dropout", type=float, default=0.5,
             help="dropout probability")
-    parser.add_argument("--gpu", type=int, default=0,
+    parser.add_argument("--gpu", type=int, default=-1,
             help="gpu")
-    parser.add_argument("--lr", type=float, default=0.003,
+    parser.add_argument("--lr", type=float, default=0.01,
             help="learning rate")
     parser.add_argument("--n-epochs", type=int, default=500,
             help="number of training epochs")
-    parser.add_argument("--batch-size", type=int, default=1000,
+    parser.add_argument("--batch-size", type=int, default=300,
             help="batch size")
-    parser.add_argument("--test-batch-size", type=int, default=1000,
+    parser.add_argument("--test-batch-size", type=int, default=5000,
             help="test batch size")
     parser.add_argument("--num-neighbors", type=int, default=num,
             help="number of neighbors to be sampled")
-    parser.add_argument("--n-hidden", type=int, default=16,
+    parser.add_argument("--n-hidden", type=int, default=32,
             help="number of hidden gcn units")
     parser.add_argument("--n-layers", type=int, default=1,
             help="number of hidden gcn layers")
@@ -606,58 +594,63 @@ def Gen_args(num):
 
 
 if __name__ == '__main__':
-    out=[0]
-    env = gcnEnv()
-    agent = Agent(state_size=228, action_size=6, random_seed=2)
-    print_every=100
+    Y=[]  # accuracy list
+    X = [] # time cost list
+    times = 0
+    env = gcnEnv()  # env
+    agent = Agent(state_size=456, action_size=6, random_seed=2)  # agent
+    print_every=100 
     max_t = 10
     scores_deque = deque(maxlen=print_every)
     scores = []
     for episode in range(500):
+        # initial env and agent
         state = env.reset()
         agent.reset()
         score = 0
-        
-        action = agent.act(state)
-        print('Take action: ',action)
 
-        next_state, reward, acc = env.step(action)
+        # choose an action
+        action = agent.act(state)
+        
+        # take an action 
+        next_state, reward, acc, time_cost= env.step(action,episode)
+
+        # store the experience and update the env
         agent.step(state, action, reward, next_state)
         state = next_state
-        score = reward
-        print('Accuracy: ',acc)
 
+        # store the total return
+        score = reward
         scores_deque.append(score)
         scores.append(score)
-        # print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(scores_deque)), end="")
-        print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode,reward), end="\n")
+
+        # print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode,reward), end="\n")
         torch.save(agent.actor_local.state_dict(), 'checkpoint_actor.pth')
         torch.save(agent.critic_local.state_dict(), 'checkpoint_critic.pth')
-        # if episode % print_every == 0:
-        #     print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode, np.mean(scores_deque)))
+        if episode > 0:
+            times = times + time_cost
+            X.append(times)
+            Y.append(acc)
 
+            # print {action || accuracy || timecost}
+            print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode,reward),'||', 'Take action: ',action, '||', 'Accuracy: ', acc, \
+            '||', 'Timecost: ', times)
 
 
     fig = plt.figure()
     ax = fig.add_subplot(111)
     plt.plot(np.arange(1, len(scores)+1), scores)
     plt.ylabel('Total Return')
-    plt.xlabel('Episode #')
+    plt.xlabel('Episode')
     plt.show()
     
 
-    dataframe = pd.DataFrame({'acc':out})
-    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Reddit/acc_nondqn_10.csv",header = False,index=False,sep=',')
+    dataframe = pd.DataFrame(X, columns=['X'])
+    dataframe = pd.concat([dataframe, pd.DataFrame(Y,columns=['Y'])],axis=1)
+
+    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Citeseer/acc_gcn_ddpg.csv",header = False,index=False,sep=',')
 
         
 
         
-
-
-
-        # ...
-        #  if acc >= 0.72:
-        #      print('Training complete in round: ',epoch)
-        #      break
-        # ...
 

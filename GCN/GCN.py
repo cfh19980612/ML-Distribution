@@ -133,8 +133,8 @@ class GCNInfer(nn.Module):
 
 # create the subgraph
 def load_cora_data(list1, list2, list3, list_test):
-    data = RedditDataset(self_loop=True)
-    # data = citegrh.load_citeseer()
+    # data = RedditDataset(self_loop=True)
+    data = citegrh.load_citeseer()
     features = torch.FloatTensor(data.features)
     labels = torch.LongTensor(data.labels)
     train_mask = torch.BoolTensor(data.train_mask)
@@ -151,7 +151,7 @@ def load_cora_data(list1, list2, list3, list_test):
     norm = 1. / g.in_degrees().float().unsqueeze(1)
     in_feats = features.shape[1]
     n_test_samples = test_mask.int().sum().item()
-    n_test_samples_test = n_test_samples/4
+    n_test_samples_test = n_test_samples
 
     features1 = features[list1]
     norm1 = norm[list1]
@@ -207,17 +207,17 @@ def load_cora_data(list1, list2, list3, list_test):
 
     for i in range(len(list1)):
         if list1[i] in train_nid:
-            train_nid1.append(i)
+            train_nid1.append(list1[i])
     train_nid1 = np.array(train_nid1)
 
     for i in range(len(list2)):
         if list2[i] in train_nid:
-            train_nid2.append(i)
+            train_nid2.append(list2[i])
     train_nid2 = np.array(train_nid2)
 
     for i in range(len(list3)):
         if list3[i] in train_nid:
-            train_nid3.append(i)
+            train_nid3.append(list3[i])
     train_nid3 = np.array(train_nid3)
 
     for i in range(len(list_test)):
@@ -227,16 +227,14 @@ def load_cora_data(list1, list2, list3, list_test):
 
     return g, g1, g2, g3, g_test, norm1,norm2,norm3,norm_test,features1,features2,features3,features_test,train_mask,test_mask,labels, labels1, labels2, labels3, labels_test, train_nid, train_nid1, train_nid2,train_nid3, test_nid, test_nid_test, in_feats, n_classes, n_test_samples, n_test_samples_test
 
-
-
 # run a subgraph
-def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,num_neighbors):
+def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,sampling):
     loss_fcn = nn.CrossEntropyLoss()
 
         # sampling
     time_now = time.time()
     for nf in dgl.contrib.sampling.NeighborSampler(Graph, args.batch_size,  
-                                                            expand_factor = args.num_neighbors,
+                                                            expand_factor = sampling,
                                                             neighbor_type='in',
                                                             shuffle=True,
                                                             num_workers=10,
@@ -258,10 +256,6 @@ def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,num_neighbors):
     p = Model.state_dict()
 
     return p, time_cost, loss.data
-
-
-
-
 
 # generate the subgraph's model and optimizer
 def genGraph(args,In_feats,N_classes,N_test_samples,flag):
@@ -285,12 +279,12 @@ def genGraph(args,In_feats,N_classes,N_test_samples,flag):
                         F.relu)
         return infer_model
 
-def inference(Graph,infer_model,args,Labels,Test_nid,In_feats,N_classes,N_test_samples,cuda):
+def inference(Graph,infer_model,args,Labels,Test_nid,In_feats,N_classes,N_test_samples,cuda,sampling):
 
     num_acc = 0.
 
     for nf in dgl.contrib.sampling.NeighborSampler(Graph, args.test_batch_size,
-                                                        Graph.number_of_nodes(),
+                                                        expand_factor=sampling,
                                                         neighbor_type='in',
                                                         num_workers=32,
                                                         num_hops=args.n_layers+1,
@@ -303,40 +297,27 @@ def inference(Graph,infer_model,args,Labels,Test_nid,In_feats,N_classes,N_test_s
             batch_labels = Labels[batch_nids]
             num_acc += (pred.argmax(dim=1) == batch_labels).sum().cpu().item()
     acc = round(num_acc/N_test_samples,4)
-
-
-        # r = pow(64,(acc-A))+math.log(time_cost_past-time_cost)
-        # s_[0] = acc
-        # s_ = np.array(s_)
-        # RL.store_transition(s, num_neighbors-1, r, s_)
-        # if (step > 30) and (step % 5 == 0):
-        #     RL.learn()
-        # s = s_
-        # time_cost_past = time_cost
-        # step += 1
-        # acc_now = acc
-    print('In round: ',epoch,' The Accuracy: ',acc)
     return acc
 
 
 def Gen_args(num):
     parser = argparse.ArgumentParser(description='GCN')
     register_data_args(parser)
-    parser.add_argument("--dropout", type=float, default=0.7,
+    parser.add_argument("--dropout", type=float, default=0.5,
             help="dropout probability")
-    parser.add_argument("--gpu", type=int, default=0,
+    parser.add_argument("--gpu", type=int, default=-1,
             help="gpu")
-    parser.add_argument("--lr", type=float, default=0.0001,
+    parser.add_argument("--lr", type=float, default=0.01,
             help="learning rate")
-    parser.add_argument("--n-epochs", type=int, default=100,
+    parser.add_argument("--n-epochs", type=int, default=500,
             help="number of training epochs")
-    parser.add_argument("--batch-size", type=int, default=1000,
+    parser.add_argument("--batch-size", type=int, default=300,
             help="batch size")
-    parser.add_argument("--test-batch-size", type=int, default=1000,
+    parser.add_argument("--test-batch-size", type=int, default=5000,
             help="test batch size")
     parser.add_argument("--num-neighbors", type=int, default=num,
             help="number of neighbors to be sampled")
-    parser.add_argument("--n-hidden", type=int, default=128,
+    parser.add_argument("--n-hidden", type=int, default=32,
             help="number of hidden gcn units")
     parser.add_argument("--n-layers", type=int, default=1,
             help="number of hidden gcn layers")
@@ -353,18 +334,20 @@ if __name__ == '__main__':
     
     # DQN parameter
     A = 0.6
-    out=[0]
+    X = []
+    Y = []
+    times = 0
     acc_now = 0
     acc_next = 0 
     step = 0
     time_cost_past = 5
 
     # pubmed 
-    node_list = list(range(232965))  
+    node_list = list(range(3327))  
     list1 = node_list[0::3]
     list2 = node_list[1::3]
     list3 = node_list[2::3]
-    list_test = node_list[0::4]
+    list_test = node_list[0::1]
 
     # GCN parameter
     g, g1, g2, g3, g_test,norm1,norm2,norm3,norm_test,features1,features2,features3,features_test,train_mask,test_mask, labels, labels1, labels2, labels3, labels_test, train_nid, train_nid1, train_nid2, train_nid3, test_nid, test_nid_test, in_feats, n_classes, n_test_samples, n_test_samples_test = load_cora_data(list1, list2, list3, list_test)
@@ -388,15 +371,35 @@ if __name__ == '__main__':
         labels2.cuda()
         labels3.cuda()
         labels_test.cuda()
+    
+    # sampling list
+    layer_scale = np.array([1,1])
+    batch_sampling_method_1 = np.array([])
+    batch_sampling_method_2 = np.array([])
+    batch_sampling_method_3 = np.array([])
+    test_batch_sampling_method = np.array([])
+    #test sampling
+    for layer in range(args.n_layers):
+        for nodes in range(g_test.number_of_nodes()):
+            test_batch_sampling_method = np.append(test_batch_sampling_method, 10000)
+    # train sampling
+    for layer in range(args.n_layers):
+        for nodes in range(g.number_of_nodes()):
+            temp1 = math.ceil(g.in_degree(nodes) * layer_scale[layer])
+            batch_sampling_method_1 = np.append(batch_sampling_method_1, temp1)
+        for nodes in range(g.number_of_nodes()):
+            temp2 = math.ceil(g.in_degree(nodes) * layer_scale[layer])
+            batch_sampling_method_2 = np.append(batch_sampling_method_1, temp2)
+        for nodes in range(g.number_of_nodes()):
+            temp3 = math.ceil(g.in_degree(nodes) * layer_scale[layer])
+            batch_sampling_method_3 = np.append(batch_sampling_method_1, temp3)
 
     s = []
     s_ = []
     for epoch in range(args.n_epochs):
-
-        time_now = time.time()
-        p1, time_cost1, loss1 = runGraph(model1,g1,args,optimizer1,labels1,train_nid1,cuda,args.num_neighbors)
-        p2, time_cost2, loss2 = runGraph(model2,g2,args,optimizer2,labels2,train_nid2,cuda,args.num_neighbors)
-        p3, time_cost3, loss3 = runGraph(model3,g3,args,optimizer3,labels3,train_nid3,cuda,args.num_neighbors)
+        p1, time_cost1, loss1 = runGraph(model1,g,args,optimizer1,labels,train_nid1,cuda,batch_sampling_method_1)
+        p2, time_cost2, loss2 = runGraph(model2,g,args,optimizer2,labels,train_nid2,cuda,batch_sampling_method_2)
+        p3, time_cost3, loss3 = runGraph(model3,g,args,optimizer3,labels,train_nid3,cuda,batch_sampling_method_3)
         
         # loss
         loss = (loss1 + loss2 + loss3)/3
@@ -407,35 +410,29 @@ if __name__ == '__main__':
         # aggregation
         for key, value in p2.items():  
             p1[key] = p1[key] * (len(train_nid1) / len(train_nid)) + p2[key] * (len(train_nid2) / len(train_nid)) + p3[key] * (len(train_nid3) / len(train_nid))
-
+        
         model1.load_state_dict(p1)
         model2.load_state_dict(p1)
         model3.load_state_dict(p1)
-
+        
         for infer_param, param in zip(infer_model.parameters(), model1.parameters()):  
             infer_param.data.copy_(param.data)
         
         # test 
-        acc = inference(g_test,infer_model,args,labels_test,test_nid_test,in_feats,n_classes,n_test_samples_test,cuda)
+        acc = inference(g_test,infer_model,args,labels_test,test_nid_test,in_feats,n_classes,n_test_samples_test,cuda,test_batch_sampling_method)
 
-        out.append(acc)
-        time_end = time.time()
-        print(loss,round(time_end-time_now,4))
-
-        # if acc >= 0.72:
-        #     print('Training complete in round: ',epoch)
-        #     break
-    dataframe = pd.DataFrame({'acc':out})
-    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Reddit/acc_nondqn_10.csv",header = False,index=False,sep=',')
-
+        if epoch > 0:
+            times = times + time_cost
+            X.append(times)
+            Y.append(acc)
+            print('Epoch: ',epoch,'||', 'Accuracy: ', acc, '||', 'Timecost: ', times)
         
 
         
 
-
-
+    dataframe = pd.DataFrame(X, columns=['X'])
+    dataframe = pd.concat([dataframe, pd.DataFrame(Y,columns=['Y'])],axis=1)
     
-        # if acc >= 0.72:
-        #     print('Training complete in round: ',epoch)
-        #     break
+    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Citeseer/acc_gcn_nonddpg(1,1).csv",header = False,index=False,sep=',')
 
+        
