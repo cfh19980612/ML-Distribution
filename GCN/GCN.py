@@ -132,9 +132,9 @@ class GCNInfer(nn.Module):
         return h
 
 # create the subgraph
-def load_cora_data(list1, list2, list3, list_test):
+def load_cora_data(Client, list_test, num_clients):
     # data = RedditDataset(self_loop=True)
-    data = citegrh.load_citeseer()
+    data = citegrh.load_cora()
     features = torch.FloatTensor(data.features)
     labels = torch.LongTensor(data.labels)
     train_mask = torch.BoolTensor(data.train_mask)
@@ -153,14 +153,6 @@ def load_cora_data(list1, list2, list3, list_test):
     n_test_samples = test_mask.int().sum().item()
     n_test_samples_test = n_test_samples
 
-    features1 = features[list1]
-    norm1 = norm[list1]
-
-    features2 = features[list2]
-    norm2 = norm[list2]
-
-    features3 = features[list3]
-    norm3 = norm[list3]
 
     features_test = features[list_test]
     norm_test = norm[list_test]
@@ -181,51 +173,60 @@ def load_cora_data(list1, list2, list3, list_test):
     # num_neighbors = args.num_neighbors
     g.ndata['norm'] = norm
 
-    g1 = g.subgraph(list1)  
-    g1.copy_from_parent()  
-    g1.readonly()
-    g2 = g.subgraph(list2)  
-    g2.copy_from_parent()  
-    g2.readonly() 
-    g3 = g.subgraph(list3)  
-    g3.copy_from_parent()  
-    g3.readonly()
+    # g1 = g.subgraph(list1)  
+    # g1.copy_from_parent()  
+    # g1.readonly()
+    # g2 = g.subgraph(list2)  
+    # g2.copy_from_parent()  
+    # g2.readonly() 
+    # g3 = g.subgraph(list3)  
+    # g3.copy_from_parent()  
+    # g3.readonly()
     g_test = g.subgraph(list_test)  
     g_test.copy_from_parent()  
     g_test.readonly()
     #g.readonly()
 
-    labels1 = labels[list1]
-    labels2 = labels[list2]
-    labels3 = labels[list3]
+    # labels1 = labels[list1]
+    # labels2 = labels[list2]
+    # labels3 = labels[list3]
     labels_test = labels[list_test]
+    
 
     train_nid1 = []
     train_nid2 = []
     train_nid3 = []
+    Train_nid = [train_nid1, train_nid2, train_nid3]
     test_nid_test = []
 
-    for i in range(len(list1)):
-        if list1[i] in train_nid:
-            train_nid1.append(list1[i])
-    train_nid1 = np.array(train_nid1)
+    for i in range(num_clients):
+        for j in range(len(Client[i])):
+            if Client[i][j] in train_nid:
+                Train_nid[i].append(Client[i][j])
+        Train_nid[i] = np.array(Train_nid[i])
 
-    for i in range(len(list2)):
-        if list2[i] in train_nid:
-            train_nid2.append(list2[i])
-    train_nid2 = np.array(train_nid2)
 
-    for i in range(len(list3)):
-        if list3[i] in train_nid:
-            train_nid3.append(list3[i])
-    train_nid3 = np.array(train_nid3)
+    # for i in range(len(Client[0])):
+    #     if Client[0][i] in train_nid:
+    #         train_nid1.append(Client[0][i])
+    # train_nid1 = np.array(train_nid1)
+
+    # for i in range(len(list2)):
+    #     if list2[i] in train_nid:
+    #         train_nid2.append(list2[i])
+    # train_nid2 = np.array(train_nid2)
+
+    # for i in range(len(list3)):
+    #     if list3[i] in train_nid:
+    #         train_nid3.append(list3[i])
+    # train_nid3 = np.array(train_nid3)
 
     for i in range(len(list_test)):
         if list_test[i] in test_nid:
             test_nid_test.append(i)
     test_nid_test = np.array(test_nid_test)
 
-    return g, g1, g2, g3, g_test, norm1,norm2,norm3,norm_test,features1,features2,features3,features_test,train_mask,test_mask,labels, labels1, labels2, labels3, labels_test, train_nid, train_nid1, train_nid2,train_nid3, test_nid, test_nid_test, in_feats, n_classes, n_test_samples, n_test_samples_test
+    return g, g_test,norm_test,features_test,train_mask,test_mask,labels, labels_test, train_nid, Train_nid, test_nid, test_nid_test, in_feats, n_classes, n_test_samples, n_test_samples_test
 
 # run a subgraph
 def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,sampling):
@@ -258,7 +259,7 @@ def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,sampling):
     return p, time_cost, loss.data
 
 # generate the subgraph's model and optimizer
-def genGraph(args,In_feats,N_classes,N_test_samples,flag):
+def genGraph(args,In_feats,N_classes,flag):
     if flag == 1:
         model = GCNSampling(In_feats,
                             args.n_hidden,
@@ -331,7 +332,8 @@ def Gen_args(num):
 
 if __name__ == '__main__':
     args = Gen_args(10)   # return the parameters
-    
+    num_clients = 3
+
     # DQN parameter
     A = 0.6
     X = []
@@ -342,80 +344,102 @@ if __name__ == '__main__':
     step = 0
     time_cost_past = 5
 
-    # pubmed 
-    node_list = list(range(3327))  
-    list1 = node_list[0::3]
-    list2 = node_list[1::3]
-    list3 = node_list[2::3]
+    # Client graph list and test
+    node_list = list(range(2708))
+    Client = [None]*num_clients
+    for i in range(num_clients):
+        Client[i] = node_list[i::num_clients]
     list_test = node_list[0::1]
 
-    # GCN parameter
-    g, g1, g2, g3, g_test,norm1,norm2,norm3,norm_test,features1,features2,features3,features_test,train_mask,test_mask, labels, labels1, labels2, labels3, labels_test, train_nid, train_nid1, train_nid2, train_nid3, test_nid, test_nid_test, in_feats, n_classes, n_test_samples, n_test_samples_test = load_cora_data(list1, list2, list3, list_test)
-    
-    model1, optimizer1 = genGraph(args,in_feats,n_classes,n_test_samples,1)
-    model2, optimizer2 = genGraph(args,in_feats,n_classes,n_test_samples,1)
-    model3, optimizer3 = genGraph(args,in_feats,n_classes,n_test_samples,1)
-    infer_model = genGraph(args,in_feats,n_classes,n_test_samples,2)
+    # Model and Opt list
+    Model = [None]*num_clients
+    Optimizer = [None]*num_clients
 
+    # GCN parameter
+    g, g_test,norm_test,features_test,train_mask,test_mask, \
+        labels, labels_test, train_nid, Train_nid, test_nid, test_nid_test, \
+            in_feats, n_classes, n_test_samples, n_test_samples_test = load_cora_data(Client, list_test, num_clients)
+
+    # initialize model and Opt
+    for i in range(num_clients):
+        Model[i], Optimizer[i] = genGraph(args,in_feats,n_classes,1)
+    infer_model = genGraph(args,in_feats,n_classes,2)
+
+    # gpu
     if args.gpu < 0:
         cuda = False
     else:
         cuda = True
-        model1.cuda()
-        model2.cuda()
-        model3.cuda()
+        for i in range(num_clients):
+            Model[i].cuda()
         infer_model.cuda()
 
         labels.cuda()
-        labels1.cuda()
-        labels2.cuda()
-        labels3.cuda()
+        # labels1.cuda()
+        # labels2.cuda()
+        # labels3.cuda()
         labels_test.cuda()
     
     # sampling list
     layer_scale = np.array([1,1])
-    batch_sampling_method_1 = np.array([])
-    batch_sampling_method_2 = np.array([])
-    batch_sampling_method_3 = np.array([])
+    s_1 = np.array([])
+    s_2 = np.array([])
+    s_3 = np.array([])
+    s_4 = np.array([])
+    s_5 = np.array([])
+    s_6 = np.array([])
+    s_7 = np.array([])
+    s_8 = np.array([])
+    s_9 = np.array([])
+    s_0 = np.array([])
+    Batch_sampling_method = [s_0, s_1, s_2, s_3, s_4, s_5, s_6, s_7, s_8, s_9]
+
     test_batch_sampling_method = np.array([])
+
     #test sampling
-    for layer in range(args.n_layers):
+    for layer in range(args.n_layers + 1):
         for nodes in range(g_test.number_of_nodes()):
             test_batch_sampling_method = np.append(test_batch_sampling_method, 10000)
+
     # train sampling
-    for layer in range(args.n_layers):
-        for nodes in range(g.number_of_nodes()):
-            temp1 = math.ceil(g.in_degree(nodes) * layer_scale[layer])
-            batch_sampling_method_1 = np.append(batch_sampling_method_1, temp1)
-        for nodes in range(g.number_of_nodes()):
-            temp2 = math.ceil(g.in_degree(nodes) * layer_scale[layer])
-            batch_sampling_method_2 = np.append(batch_sampling_method_1, temp2)
-        for nodes in range(g.number_of_nodes()):
-            temp3 = math.ceil(g.in_degree(nodes) * layer_scale[layer])
-            batch_sampling_method_3 = np.append(batch_sampling_method_1, temp3)
+    for i in range(num_clients):
+        for layer in range(args.n_layers + 1):
+            for nodes in range(g.number_of_nodes()):
+                temp = math.ceil(g.in_degree(nodes) * layer_scale[layer])
+                Batch_sampling_method[i] = np.append(Batch_sampling_method[i], temp)
 
     s = []
     s_ = []
+    P = [None]*num_clients
+    Time_cost = [None]*num_clients
+    Loss = [None]*3
     for epoch in range(args.n_epochs):
-        p1, time_cost1, loss1 = runGraph(model1,g,args,optimizer1,labels,train_nid1,cuda,batch_sampling_method_1)
-        p2, time_cost2, loss2 = runGraph(model2,g,args,optimizer2,labels,train_nid2,cuda,batch_sampling_method_2)
-        p3, time_cost3, loss3 = runGraph(model3,g,args,optimizer3,labels,train_nid3,cuda,batch_sampling_method_3)
+        for i in range(num_clients):
+            P[i], Time_cost[i], Loss[i] = runGraph(Model[i],g,args,Optimizer[i],labels,Train_nid[i],cuda,Batch_sampling_method[i])
         
         # loss
-        loss = (loss1 + loss2 + loss3)/3
+        # loss = 0
+        # for i in num_clients:
+        #     loss += Loss[i]
+        # loss = round(loss/3,4)
 
         # time cost
-        time_cost = round((time_cost1+time_cost2+time_cost3)/3,4)
+        time_cost = 0
+        for i in range(num_clients):
+            time_cost += Time_cost[i]
+        time_cost = round(time_cost/num_clients,4)
 
         # aggregation
-        for key, value in p2.items():  
-            p1[key] = p1[key] * (len(train_nid1) / len(train_nid)) + p2[key] * (len(train_nid2) / len(train_nid)) + p3[key] * (len(train_nid3) / len(train_nid))
+        for key, value in P[0].items():  
+            P[0][key] = P[0][key] * (len(Train_nid[0]) / len(train_nid)) + P[1][key] * (len(Train_nid[1]) / len(train_nid)) + P[2][key] * (len(Train_nid[2]) / len(train_nid))
         
-        model1.load_state_dict(p1)
-        model2.load_state_dict(p1)
-        model3.load_state_dict(p1)
+        for i in range(num_clients):
+            Model[i].load_state_dict(P[0])
+        # model1.load_state_dict(p1)
+        # model2.load_state_dict(p1)
+        # model3.load_state_dict(p1)
         
-        for infer_param, param in zip(infer_model.parameters(), model1.parameters()):  
+        for infer_param, param in zip(infer_model.parameters(), Model[0].parameters()):  
             infer_param.data.copy_(param.data)
         
         # test 
@@ -433,6 +457,6 @@ if __name__ == '__main__':
     dataframe = pd.DataFrame(X, columns=['X'])
     dataframe = pd.concat([dataframe, pd.DataFrame(Y,columns=['Y'])],axis=1)
     
-    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Citeseer/acc_gcn_nonddpg(1,1).csv",header = False,index=False,sep=',')
+    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Cora/acc_gcn_nonddpg(1,1).csv",header = False,index=False,sep=',')
 
         

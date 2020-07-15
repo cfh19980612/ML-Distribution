@@ -217,10 +217,13 @@ def Gen_args():
 
 
 if __name__ == '__main__':
+    # num of clients
+    num_clients = 3
+
     # initialize the Hyperparameter
     args = Gen_args()
     # load and preprocess dataset
-    data = citegrh.load_citeseer()
+    data = citegrh.load_cora()
 
     # initialize the time (X)
     times = 0
@@ -228,10 +231,16 @@ if __name__ == '__main__':
     # initialize the accuracy (Y)
     Y = []
 
-    node_list = list(range(3327))  
-    list1 = node_list[0::3]
-    list2 = node_list[1::3]
-    list3 = node_list[2::3]
+    # model list & Opt list
+    Model = [None]*num_clients
+    Optimizer = [None]*num_clients
+
+    # Client graph list and test
+    node_list = list(range(2708))
+    Client = [None]*num_clients
+    for i in range(num_clients):
+        Client[i] = node_list[i::num_clients]
+    list_test = node_list[0::1]
 
     if args.self_loop and not args.dataset.startswith('reddit'):
         data.graph.add_edges_from([(i,i) for i in range(len(data.graph))])
@@ -290,57 +299,57 @@ if __name__ == '__main__':
 
     g.ndata['norm'] = norm
 
-    model1, optimizer1 = genModel(args,in_feats,n_classes,1)
-    model2, optimizer2 = genModel(args,in_feats,n_classes,1)
-    model3, optimizer3 = genModel(args,in_feats,n_classes,1)
-
+    # initialize model and opt
+    for i in range(num_clients):
+        Model[i], Optimizer[i] = genModel(args,in_feats,n_classes,1)
     infer_model = genModel(args,in_feats,n_classes,2)
 
-
+    # gpu?
     if cuda:
-        model1.cuda()
-        model2.cuda()
-        model3.cuda()
+        for i in range(num_clients):
+            Model[i].cuda()
         infer_model.cuda()
 
 
-
+    # train_nid list
     train_nid1 = []
     train_nid2 = []
     train_nid3 = []
-    for i in range(len(list1)):
-        if list1[i] in train_nid:
-            train_nid1.append(list1[i])
-    train_nid1 = np.array(train_nid1)
-
-    for i in range(len(list2)):
-        if list2[i] in train_nid:
-            train_nid2.append(list2[i])
-    train_nid2 = np.array(train_nid2)
-
-    for i in range(len(list3)):
-        if list3[i] in train_nid:
-            train_nid3.append(list3[i])
-    train_nid3 = np.array(train_nid3)
+    Train_nid = Train_nid = [train_nid1, train_nid2, train_nid3]
+    for i in range(num_clients):
+        for j in range(len(Client[i])):
+            if Client[i][j] in train_nid:
+                Train_nid[i].append(Client[i][j])
+        Train_nid[i] = np.array(Train_nid[i])
 
 
+    P = [None]*num_clients
+    Time_cost = [None]*num_clients
+    Loss = [None]*3
     for epoch in range(args.n_epochs):
-        p1, time1 = training(args, g, model1, optimizer1, train_nid1, labels, cuda)
-        p2, time2 = training(args, g, model2, optimizer2, train_nid2, labels, cuda)
-        p3, time3 = training(args, g, model3, optimizer3, train_nid3, labels, cuda)
+        for i in range(num_clients):
+                P[i], Time_cost[i] = training(args, g, Model[i], Optimizer[i], Train_nid[i], labels, cuda)
 
-        time_cost = round((time1 + time2 + time3)/3,4)
+        # timecost in training
+        time_cost = 0
+        for i in range(num_clients):
+            time_cost += Time_cost[i]
+        time_cost = round(time_cost/num_clients,4)
+
         # aggregation
-        for key, value in p1.items():  
-            p1[key] = p1[key] * (len(train_nid1) / len(train_nid)) + p2[key] * (len(train_nid2) / len(train_nid)) + \
-                p3[key] * (len(train_nid3) / len(train_nid))
-
-        model1.load_state_dict(p1)
-        model2.load_state_dict(p1)
-        model3.load_state_dict(p1)
+        for key, value in P[0].items():  
+            for i in range(num_clients):
+                if i == 0:
+                    P[0][key] = P[i][key] * (len(Train_nid[i]) / len(train_nid))
+                else:
+                    P[0][key] += P[i][key] * (len(Train_nid[i]) / len(train_nid))
+            # P[0][key] = P[0][key] * (len(Train_nid[0]) / len(train_nid)) + P[1][key] * (len(Train_nid[1]) / len(train_nid)) + P[2][key] * (len(Train_nid[2]) / len(train_nid))
+        
+        for i in range(num_clients):
+            Model[i].load_state_dict(P[0])
 
         # test
-        for infer_param, param in zip(infer_model.parameters(), model1.parameters()):  
+        for infer_param, param in zip(infer_model.parameters(), Model[0].parameters()):  
             infer_param.data.copy_(param.data)
         
         acc = inference(args, g, infer_model, test_nid, labels, n_test_samples)
@@ -354,7 +363,7 @@ if __name__ == '__main__':
     dataframe = pd.DataFrame(X, columns=['X'])
     dataframe = pd.concat([dataframe, pd.DataFrame(Y,columns=['Y'])],axis=1)
 
-    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Citeseer/acc_gcn_GraphSAGE.csv",header = False,index=False,sep=',')
+    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Cora/acc_gcn_GraphSAGE.csv",header = False,index=False,sep=',')
 
 
 

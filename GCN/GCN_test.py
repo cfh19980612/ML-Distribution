@@ -48,7 +48,12 @@ class gcnEnv(gym.Env):
     def __init__(self):
 
         self.args = Gen_args(10)   # return the parameters
-        
+        self.num_clients = 3
+
+        # model and Opt list
+        self.Model = [None]*self.num_clients
+        self.Optimizer = [None]*self.num_clients
+
         # DQN parameter
         A = 0.6
         out=[0]
@@ -57,39 +62,34 @@ class gcnEnv(gym.Env):
         step = 0
         time_cost_past = 5
 
-        # pubmed 
-        node_list = list(range(3327))  
-        list1 = node_list[0::3]
-        list2 = node_list[1::3]
-        list3 = node_list[2::3]
+        # Client graph list and test
+        node_list = list(range(2708))
+        Client = [None]*self.num_clients
+        for i in range(self.num_clients):
+            Client[i] = node_list[i::self.num_clients]
         list_test = node_list[0::1]
 
         
         # GCN parameter
-        self.g, self.g1, self.g2, self.g3, self.g_test, self.norm1, self.norm2, self.norm3, self.norm_test, self.features1, self.features2, self.features3,\
-            self.features_test, self.train_mask, self.test_mask, self.labels, self.labels1, self.labels2, self.labels3, self.labels_test, self.train_nid, \
-                self.train_nid1, self.train_nid2, self.train_nid3, self.test_nid, self.test_nid_test, self.in_feats, self.n_classes, self.n_test_samples, \
-                    self.n_test_samples_test = load_cora_data(list1, list2, list3, list_test,self.args)
+        self.g, self.g_test,self.norm_test,self.features_test,self.train_mask,self.test_mask, \
+            self.labels, self.labels_test, self.train_nid, self.Train_nid, self.test_nid, self.test_nid_test, \
+                self.in_feats, self.n_classes, self.n_test_samples, self.n_test_samples_test = load_cora_data(self.args, Client, list_test, self.num_clients)
         
-        model1, self.optimizer1 = genGraph(self.args,self.in_feats,self.n_classes,self.n_test_samples,1)
-        model2, self.optimizer2 = genGraph(self.args,self.in_feats,self.n_classes,self.n_test_samples,1)
-        model3, self.optimizer3 = genGraph(self.args,self.in_feats,self.n_classes,self.n_test_samples,1)
-        self.infer_model = genGraph(self.args,self.in_feats,self.n_classes,self.n_test_samples,2)
-        self.local_model = [model1,model2,model3]
+        # initialize the model and Opt
+        for i in range(self.num_clients):
+            self.Model[i], self.Optimizer[i] = genGraph(self.args,self.in_feats,self.n_classes,1)
+
+        self.infer_model = genGraph(self.args,self.in_feats,self.n_classes,2)
 
         if self.args.gpu < 0:
             self.cuda = False
         else:
             self.cuda = True
-            self.local_model[0].cuda()
-            self.local_model[1].cuda()
-            self.local_model[2].cuda()
+            for i in range(self.num_clients):
+                self.Model[i].cuda()
             self.infer_model.cuda()
 
             self.labels.cuda()
-            self.labels1.cuda()
-            self.labels2.cuda()
-            self.labels3.cuda()
             self.labels_test.cuda()
 
         s = []
@@ -102,56 +102,55 @@ class gcnEnv(gym.Env):
 
 
         self.action_space = 6 
-        self.observation_space = 228
+        self.observation_space = 468
 
 
     def step(self, action, episode):
         
-        batch_sampling_method_1 = np.array([])
-        batch_sampling_method_2 = np.array([])
-        batch_sampling_method_3 = np.array([])
+        s_1 = np.array([])
+        s_2 = np.array([])
+        s_3 = np.array([])
+        s_4 = np.array([])
+        s_5 = np.array([])
+        s_6 = np.array([])
+        s_7 = np.array([])
+        s_8 = np.array([])
+        s_9 = np.array([])
+        s_0 = np.array([])
+        Batch_sampling_method = [s_0, s_1, s_2, s_3, s_4, s_5, s_6, s_7, s_8, s_9]
         test_batch_sampling_method = np.array([])
-        layer_size = np.array([2,1])
-        layer_scale = np.array([0.6,0.4])
 
-        sampling_1 = action[0:2:1]
-        sampling_2 = action[2:4:1]
-        sampling_3 = action[4:6:1]
+        layer_size = np.array([2,1])
+        Layer_scale = [None]*self.num_clients
+        j = 0
+        for i in range(self.num_clients):
+            Layer_scale[i] = action[j:j+2:1]
+            j = i+2
+
         #test sampling
-        for layer in range(self.args.n_layers):
+        for layer in range(self.args.n_layers + 1):
             for nodes in range(self.g_test.number_of_nodes()):
                 test_batch_sampling_method = np.append(test_batch_sampling_method, 10000)
 
-        # training sampling
-        # for layer in range(self.args.n_layers):
-        #     for nodes in range(self.g1.number_of_nodes()):
-        #         batch_sampling_method_1 = np.append(batch_sampling_method_1, layer_size[layer])
-                # batch_sampling_method = np.append(batch_sampling_method, layer_size[layer])
-                # batch_sampling_method = np.append(batch_sampling_method, layer_size[layer])
-                  
         # Scale training
-        for layer in range(self.args.n_layers):
-            for nodes in range(self.g.number_of_nodes()):
-                temp1 = math.ceil(self.g.in_degree(nodes) * sampling_1[layer])
-                batch_sampling_method_1 = np.append(batch_sampling_method_1, temp1)
-            for nodes in range(self.g.number_of_nodes()):
-                temp2 = math.ceil(self.g.in_degree(nodes) * sampling_2[layer])
-                batch_sampling_method_2 = np.append(batch_sampling_method_1, temp2)
-            for nodes in range(self.g.number_of_nodes()):
-                temp3 = math.ceil(self.g.in_degree(nodes) * sampling_3[layer])
-                batch_sampling_method_3 = np.append(batch_sampling_method_1, temp3)
-        
-        
-        time_now = time.time()
-        p1, time_cost1, loss1 = runGraph(self.local_model[0],self.g,self.args,self.optimizer1,self.labels,self.train_nid1,self.cuda,batch_sampling_method_1)
-        p2, time_cost2, loss2 = runGraph(self.local_model[1],self.g,self.args,self.optimizer2,self.labels,self.train_nid2,self.cuda,batch_sampling_method_2)
-        p3, time_cost3, loss3 = runGraph(self.local_model[2],self.g,self.args,self.optimizer3,self.labels,self.train_nid3,self.cuda,batch_sampling_method_3)
+        for i in range(self.num_clients):
+            for layer in range(self.args.n_layers + 1):
+                for nodes in range(self.g.number_of_nodes()):
+                    temp = math.ceil(self.g.in_degree(nodes) * Layer_scale[i][layer])
+                    Batch_sampling_method[i] = np.append(Batch_sampling_method[i], temp)
+
+        P = [None]*self.num_clients
+        Time_cost = [None]*self.num_clients
+        Loss = [None]*self.num_clients
+        for i in range(self.num_clients):
+            P[i], Time_cost[i], Loss[i] = runGraph(self.Model[i],self.g,self.args,self.Optimizer[i],\
+                self.labels,self.Train_nid[i],self.cuda,Batch_sampling_method[i])
         
         # get local model for state
         S_local = [0,0,0]
         for i in range(3):
             parm_local = {}
-            for name, parameters in self.local_model[i].named_parameters():
+            for name, parameters in self.Model[i].named_parameters():
                     #print(name,':',parameters.size())
                 parm_local[name]=parameters.detach().cpu().numpy()
             s_1 = parm_local['layers.0.linear.weight'][0::]
@@ -167,23 +166,23 @@ class gcnEnv(gym.Env):
             s_4 = parm_local['layers.1.linear.bias'][0::]
             S_local[i] = np.concatenate((s_11,s_2,s_33,s_4),axis=0)
 
-        # loss
-        loss = (loss1 + loss2 + loss3)/3
 
         # time cost
-        time_cost = round((time_cost1+time_cost2+time_cost3)/3,4)
+        time_cost = 0
+        for i in range(self.num_clients):
+            time_cost += Time_cost[i]
+        time_cost = round(time_cost/self.num_clients,4)
 
         # aggregation
-        for key, value in p1.items():  
-            p1[key] = p1[key] * (len(self.train_nid1) / len(self.train_nid)) + p2[key] * (len(self.train_nid2) / len(self.train_nid)) + \
-                p3[key] * (len(self.train_nid3) / len(self.train_nid))
-
-        self.local_model[0].load_state_dict(p1)
-        self.local_model[1].load_state_dict(p1)
-        self.local_model[2].load_state_dict(p1)
+        for key, value in P[0].items():  
+            P[0][key] = P[0][key] * (len(self.Train_nid[0]) / len(self.train_nid)) + P[1][key] * \
+                (len(self.Train_nid[1]) / len(self.train_nid)) + P[2][key] * (len(self.Train_nid[2]) / len(self.train_nid))
+        
+        for i in range(self.num_clients):
+            self.Model[i].load_state_dict(P[0])
 
         # test
-        for infer_param, param in zip(self.infer_model.parameters(), self.local_model[0].parameters()):  
+        for infer_param, param in zip(self.infer_model.parameters(), self.Model[0].parameters()):  
             infer_param.data.copy_(param.data)
         
         acc = inference(self.g_test,self.infer_model,self.args,self.labels_test,self.test_nid_test,self.in_feats,\
@@ -209,7 +208,7 @@ class gcnEnv(gym.Env):
 
         S_global = np.concatenate((s_11,s_2,s_33,s_4),axis=0)
     
-        reward = pow(32,acc-0.7) - pow(64, 0 - 50*time_cost)
+        reward = pow(128,acc-0.78) - pow(128, 0 - 80*time_cost)
         # reward = pow(64,acc-0.8)
         
         S = np.concatenate((S_local[0],S_local[1],S_local[2],S_global),axis = 0)
@@ -222,7 +221,7 @@ class gcnEnv(gym.Env):
 
         for i in range(3):
             parm_local = {}
-            for name, parameters in self.local_model[i].named_parameters():
+            for name, parameters in self.Model[i].named_parameters():
                     #print(name,':',parameters.size())
                 parm_local[name]=parameters.detach().cpu().numpy()
             s_1 = parm_local['layers.0.linear.weight'][0::]
@@ -362,9 +361,9 @@ class GCNInfer(nn.Module):
         return h
 
 # create the subgraph
-def load_cora_data(list1, list2, list3, list_test, args):
-    # data = RedditDataset(self_loop=True)
-    data = citegrh.load_citeseer()
+def load_cora_data(args, Client, list_test, num_clients):
+ # data = RedditDataset(self_loop=True)
+    data = citegrh.load_cora()
     features = torch.FloatTensor(data.features)
     labels = torch.LongTensor(data.labels)
     train_mask = torch.BoolTensor(data.train_mask)
@@ -383,14 +382,6 @@ def load_cora_data(list1, list2, list3, list_test, args):
     n_test_samples = test_mask.int().sum().item()
     n_test_samples_test = n_test_samples
 
-    features1 = features[list1]
-    norm1 = norm[list1]
-
-    features2 = features[list2]
-    norm2 = norm[list2]
-
-    features3 = features[list3]
-    norm3 = norm[list3]
 
     features_test = features[list_test]
     norm_test = norm[list_test]
@@ -411,53 +402,60 @@ def load_cora_data(list1, list2, list3, list_test, args):
     # num_neighbors = args.num_neighbors
     g.ndata['norm'] = norm
 
-    g1 = g.subgraph(list1)  
-    g1.copy_from_parent()  
-    g1.readonly()
-    g2 = g.subgraph(list2)  
-    g2.copy_from_parent()  
-    g2.readonly() 
-    g3 = g.subgraph(list3)  
-    g3.copy_from_parent()  
-    g3.readonly()
+    # g1 = g.subgraph(list1)  
+    # g1.copy_from_parent()  
+    # g1.readonly()
+    # g2 = g.subgraph(list2)  
+    # g2.copy_from_parent()  
+    # g2.readonly() 
+    # g3 = g.subgraph(list3)  
+    # g3.copy_from_parent()  
+    # g3.readonly()
     g_test = g.subgraph(list_test)  
     g_test.copy_from_parent()  
     g_test.readonly()
     #g.readonly()
 
-    labels1 = labels[list1]
-    labels2 = labels[list2]
-    labels3 = labels[list3]
+    # labels1 = labels[list1]
+    # labels2 = labels[list2]
+    # labels3 = labels[list3]
     labels_test = labels[list_test]
+    
 
     train_nid1 = []
     train_nid2 = []
     train_nid3 = []
+    Train_nid = [train_nid1, train_nid2, train_nid3]
     test_nid_test = []
 
+    for i in range(num_clients):
+        for j in range(len(Client[i])):
+            if Client[i][j] in train_nid:
+                Train_nid[i].append(Client[i][j])
+        Train_nid[i] = np.array(Train_nid[i])
 
 
-    for i in range(len(list1)):
-        if list1[i] in train_nid:
-            train_nid1.append(list1[i])
-    train_nid1 = np.array(train_nid1)
+    # for i in range(len(Client[0])):
+    #     if Client[0][i] in train_nid:
+    #         train_nid1.append(Client[0][i])
+    # train_nid1 = np.array(train_nid1)
 
-    for i in range(len(list2)):
-        if list2[i] in train_nid:
-            train_nid2.append(list2[i])
-    train_nid2 = np.array(train_nid2)
+    # for i in range(len(list2)):
+    #     if list2[i] in train_nid:
+    #         train_nid2.append(list2[i])
+    # train_nid2 = np.array(train_nid2)
 
-    for i in range(len(list3)):
-        if list3[i] in train_nid:
-            train_nid3.append(list3[i])
-    train_nid3 = np.array(train_nid3)
+    # for i in range(len(list3)):
+    #     if list3[i] in train_nid:
+    #         train_nid3.append(list3[i])
+    # train_nid3 = np.array(train_nid3)
 
     for i in range(len(list_test)):
         if list_test[i] in test_nid:
             test_nid_test.append(i)
     test_nid_test = np.array(test_nid_test)
 
-    return g, g1, g2, g3, g_test, norm1,norm2,norm3,norm_test,features1,features2,features3,features_test,train_mask,test_mask,labels, labels1, labels2, labels3, labels_test, train_nid, train_nid1, train_nid2,train_nid3, test_nid, test_nid_test, in_feats, n_classes, n_test_samples, n_test_samples_test
+    return g, g_test,norm_test,features_test,train_mask,test_mask,labels, labels_test, train_nid, Train_nid, test_nid, test_nid_test, in_feats, n_classes, n_test_samples, n_test_samples_test
 
 # train process
 def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,sampling):
@@ -490,7 +488,7 @@ def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,sampling):
     return p, time_cost, loss.data
 
 # generate the subgraph's model and optimizer
-def genGraph(args,In_feats,N_classes,N_test_samples,flag):
+def genGraph(args,In_feats,N_classes,flag):
     if flag == 1:
         model = GCNSampling(In_feats,
                             args.n_hidden,
@@ -598,7 +596,7 @@ if __name__ == '__main__':
     X = [] # time cost list
     times = 0
     env = gcnEnv()  # env
-    agent = Agent(state_size=456, action_size=6, random_seed=2)  # agent
+    agent = Agent(state_size=468, action_size=6, random_seed=2)  # agent
     print_every=100 
     max_t = 10
     scores_deque = deque(maxlen=print_every)
@@ -648,7 +646,7 @@ if __name__ == '__main__':
     dataframe = pd.DataFrame(X, columns=['X'])
     dataframe = pd.concat([dataframe, pd.DataFrame(Y,columns=['Y'])],axis=1)
 
-    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Citeseer/acc_gcn_ddpg.csv",header = False,index=False,sep=',')
+    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Cora/acc_gcn_ddpg.csv",header = False,index=False,sep=',')
 
         
 
