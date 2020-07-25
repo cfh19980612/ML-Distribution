@@ -8,7 +8,8 @@ import dgl.function as fn
 from dgl import DGLGraph
 from dgl.data import register_data_args, load_data
 from dgl.data import citation_graph as citegrh
-
+from dgl.data import RedditDataset
+import pandas as pd
 
 class NodeUpdate(nn.Module):
     def __init__(self, layer_id, in_feats, out_feats, dropout, activation=None, test=False, concat=False):
@@ -147,11 +148,11 @@ def Gen_args():
             help="gpu")
     parser.add_argument("--lr", type=float, default=0.01,
             help="learning rate")
-    parser.add_argument("--n-epochs", type=int, default=500,
+    parser.add_argument("--n-epochs", type=int, default=1000,
             help="number of training epochs")
-    parser.add_argument("--batch-size", type=int, default=1000,
+    parser.add_argument("--batch-size", type=int, default=300,
             help="train batch size")
-    parser.add_argument("--test-batch-size", type=int, default=1000,
+    parser.add_argument("--test-batch-size", type=int, default=5000,
             help="test batch size")
     parser.add_argument("--num-neighbors", type=int, default=2,
             help="number of neighbors to be sampled")
@@ -197,7 +198,7 @@ def training(args, g, model, optimizer, train_nid, labels, cuda):
                                                        num_neighbors,
                                                        neighbor_type='in',
                                                        shuffle=True,
-                                                       num_workers=32,
+                                                       num_workers=10,
                                                        num_hops=n_layers,
                                                        seed_nodes=train_nid):
         for i in range(n_layers):
@@ -255,15 +256,19 @@ def inference(args, g, infer_model, test_nid, labels, n_test_samples):
     return acc
 
 if __name__ == '__main__':
+    #target
+    cora = 0.83
+    citeseer = 0.72
+    pubmed = 0.79
 
     # num of clients
-    num_clients = 3
+    num_clients = 8
 
     # initialize the Hyperparameter
     args = Gen_args()
     # load and preprocess dataset
-    data = citegrh.load_cora()
-
+    #data = citegrh.load_pubmed()
+    data = RedditDataset(self_loop=True)
     # initialize the time (X)
     times = 0
     X = []
@@ -275,7 +280,7 @@ if __name__ == '__main__':
     Optimizer = [None]*num_clients
 
     # Client graph list and test
-    node_list = list(range(2708))
+    node_list = list(range(19717))
     Client = [None]*num_clients
     for i in range(num_clients):
         Client[i] = node_list[i::num_clients]
@@ -362,7 +367,14 @@ if __name__ == '__main__':
     train_nid1 = []
     train_nid2 = []
     train_nid3 = []
-    Train_nid = Train_nid = [train_nid1, train_nid2, train_nid3]
+    train_nid4 = []
+    train_nid5 = []
+    train_nid6 = []
+    train_nid7 = []
+    train_nid8 = []
+    train_nid9 = []
+    train_nid0 = []
+    Train_nid = [train_nid1, train_nid2, train_nid3,train_nid4, train_nid5, train_nid6, train_nid7, train_nid8, train_nid9, train_nid0]
     for i in range(num_clients):
         for j in range(len(Client[i])):
             if Client[i][j] in train_nid:
@@ -377,7 +389,7 @@ if __name__ == '__main__':
     for epoch in range(args.n_epochs):
         # training
         for i in range(num_clients):
-                P[i], Time_cost[i], Node_embed_names[i]= training(args, g, Model[i], Optimizer[i], Train_nid[i], labels, cuda)
+            P[i], Time_cost[i], Node_embed_names[i]= training(args, g, Model[i], Optimizer[i], Train_nid[i], labels, cuda)
 
         # timecost in training
         time_cost = 0
@@ -410,8 +422,12 @@ if __name__ == '__main__':
             Y.append(acc)
             print('Epoch: ',epoch,'||', 'Accuracy: ', acc, '||', 'Timecost: ', times)
 
+        if acc >= pubmed:
+            break
+
+    dataframes = pd.DataFrame(Y, columns=['Y'])
     dataframe = pd.DataFrame(X, columns=['X'])
     dataframe = pd.concat([dataframe, pd.DataFrame(Y,columns=['Y'])],axis=1)
 
-    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Cora/acc_gcn_CV.csv",header = False,index=False,sep=',')
-    
+    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Pubmed(8)/acc_gcn_CV.csv",header = False,index=False,sep=',')
+    dataframes.to_csv("/home/fahao/Py_code/results/GCN-Pubmed(8)/acc_gcn_CV(round).csv",header = False,index=False,sep=',')

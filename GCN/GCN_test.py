@@ -27,6 +27,7 @@ from DDPG import Agent
 from sklearn.decomposition import PCA
 from collections import deque
 import matplotlib.pyplot as plt
+import progressbar
 
 acc=0
 
@@ -47,8 +48,8 @@ class gcnEnv(gym.Env):
      
     def __init__(self):
 
-        self.args = Gen_args(10)   # return the parameters
-        self.num_clients = 3
+        self.args = Gen_args(8)   # return the parameters
+        self.num_clients = 5
 
         # model and Opt list
         self.Model = [None]*self.num_clients
@@ -80,7 +81,8 @@ class gcnEnv(gym.Env):
             self.Model[i], self.Optimizer[i] = genGraph(self.args,self.in_feats,self.n_classes,1)
 
         self.infer_model = genGraph(self.args,self.in_feats,self.n_classes,2)
-
+        
+        # gpu?
         if self.args.gpu < 0:
             self.cuda = False
         else:
@@ -147,8 +149,8 @@ class gcnEnv(gym.Env):
                 self.labels,self.Train_nid[i],self.cuda,Batch_sampling_method[i])
         
         # get local model for state
-        S_local = [0,0,0]
-        for i in range(3):
+        S_local = [None]*self.num_clients
+        for i in range(self.num_clients):
             parm_local = {}
             for name, parameters in self.Model[i].named_parameters():
                     #print(name,':',parameters.size())
@@ -166,7 +168,6 @@ class gcnEnv(gym.Env):
             s_4 = parm_local['layers.1.linear.bias'][0::]
             S_local[i] = np.concatenate((s_11,s_2,s_33,s_4),axis=0)
 
-
         # time cost
         time_cost = 0
         for i in range(self.num_clients):
@@ -175,8 +176,11 @@ class gcnEnv(gym.Env):
 
         # aggregation
         for key, value in P[0].items():  
-            P[0][key] = P[0][key] * (len(self.Train_nid[0]) / len(self.train_nid)) + P[1][key] * \
-                (len(self.Train_nid[1]) / len(self.train_nid)) + P[2][key] * (len(self.Train_nid[2]) / len(self.train_nid))
+            for i in range(self.num_clients):
+                if i == 0:
+                    P[0][key] = P[i][key] * (len(self.Train_nid[i]) / len(self.train_nid))
+                else:
+                    P[0][key] += P[i][key] * (len(self.Train_nid[i]) / len(self.train_nid))
         
         for i in range(self.num_clients):
             self.Model[i].load_state_dict(P[0])
@@ -208,18 +212,24 @@ class gcnEnv(gym.Env):
 
         S_global = np.concatenate((s_11,s_2,s_33,s_4),axis=0)
     
-        reward = pow(128,acc-0.78) - pow(128, 0 - 80*time_cost)
+        reward = pow(32,acc-0.8) - math.log(1 + 30*time_cost)
+        # reward = pow(10,acc-0.8) - 60*time_cost
+        # reward = 0 - pow(64,0 - 100*time_cost)
         # reward = pow(64,acc-0.8)
         
-        S = np.concatenate((S_local[0],S_local[1],S_local[2],S_global),axis = 0)
+        # next state
+        S = S_global
+        for i in range(self.num_clients):
+            S = np.concatenate((S,S_local[i]),axis=0)
+
         return S, reward, acc, time_cost
     
     def reset(self):
         self.counts = 0
-        S_local = [0,0,0]
+        S_local = [None]*self.num_clients
         parm = {}
 
-        for i in range(3):
+        for i in range(self.num_clients):
             parm_local = {}
             for name, parameters in self.Model[i].named_parameters():
                     #print(name,':',parameters.size())
@@ -253,7 +263,9 @@ class gcnEnv(gym.Env):
         s_4 = parm['layers.1.linear.bias'][0::]
         S_global = np.concatenate((s_11,s_2,s_33,s_4),axis=0)
 
-        S = np.concatenate((S_local[0],S_local[1],S_local[2],S_global),axis = 0)
+        S = S_global
+        for i in range(self.num_clients):
+            S = np.concatenate((S,S_local[i]),axis=0)
         return S
         
     def render(self, mode='human'):
@@ -283,7 +295,7 @@ class NodeUpdate(nn.Module):
             h = self.activation(h)
         return {'activation': h}
 
-#define the training process
+# define the training process
 class GCNSampling(nn.Module):
     def __init__(self,
                  in_feats,
@@ -421,11 +433,17 @@ def load_cora_data(args, Client, list_test, num_clients):
     # labels3 = labels[list3]
     labels_test = labels[list_test]
     
-
     train_nid1 = []
     train_nid2 = []
     train_nid3 = []
-    Train_nid = [train_nid1, train_nid2, train_nid3]
+    train_nid4 = []
+    train_nid5 = []
+    train_nid6 = []
+    train_nid7 = []
+    train_nid8 = []
+    train_nid9 = []
+    train_nid0 = []
+    Train_nid = [train_nid1, train_nid2, train_nid3,train_nid4, train_nid5, train_nid6, train_nid7, train_nid8, train_nid9, train_nid0]
     test_nid_test = []
 
     for i in range(num_clients):
@@ -543,6 +561,7 @@ def inference(Graph,infer_model,args,Labels,Test_nid,In_feats,N_classes,N_test_s
     # print('In round: ',epoch,' The Accuracy: ',acc)
     return acc
 
+# training
 def train(mu, mu_target, q, q_target, memory, q_optimizer, mu_optimizer):
     s,a,r,s_prime  = memory.sample(batch_size)
     
@@ -556,7 +575,8 @@ def train(mu, mu_target, q, q_target, memory, q_optimizer, mu_optimizer):
     mu_optimizer.zero_grad()
     mu_loss.backward()
     mu_optimizer.step()
-    
+
+# update target network
 def soft_update(net, net_target):
     for param_target, param in zip(net_target.parameters(), net.parameters()):
         param_target.data.copy_(param_target.data * (1.0 - tau) + param.data * tau)
@@ -567,11 +587,11 @@ def Gen_args(num):
     register_data_args(parser)
     parser.add_argument("--dropout", type=float, default=0.5,
             help="dropout probability")
-    parser.add_argument("--gpu", type=int, default=-1,
+    parser.add_argument("--gpu", type=int, default=0,
             help="gpu")
     parser.add_argument("--lr", type=float, default=0.01,
             help="learning rate")
-    parser.add_argument("--n-epochs", type=int, default=500,
+    parser.add_argument("--n-epochs", type=int, default=1000,
             help="number of training epochs")
     parser.add_argument("--batch-size", type=int, default=300,
             help="batch size")
@@ -579,7 +599,7 @@ def Gen_args(num):
             help="test batch size")
     parser.add_argument("--num-neighbors", type=int, default=num,
             help="number of neighbors to be sampled")
-    parser.add_argument("--n-hidden", type=int, default=32,
+    parser.add_argument("--n-hidden", type=int, default=16,
             help="number of hidden gcn units")
     parser.add_argument("--n-layers", type=int, default=1,
             help="number of hidden gcn layers")
@@ -591,17 +611,27 @@ def Gen_args(num):
     return args
 
 
+def dosomework():  
+    time.sleep(0.01) 
+
 if __name__ == '__main__':
-    Y=[]  # accuracy list
-    X = [] # time cost list
+    # target
+    cora = 0.83
+    citeseer = 0.72
+    pubmed = 0.82
+
+    Y = []  # accuracy list
+    X = []  # time cost list
+    Z = []  # reward list
     times = 0
     env = gcnEnv()  # env
-    agent = Agent(state_size=468, action_size=6, random_seed=2)  # agent
+    agent = Agent(state_size=414, action_size=20, random_seed=2)  # agent
     print_every=100 
     max_t = 10
     scores_deque = deque(maxlen=print_every)
     scores = []
-    for episode in range(500):
+    max_value = 500
+    for episode in range(1000):
         # initial env and agent
         state = env.reset()
         agent.reset()
@@ -629,11 +659,18 @@ if __name__ == '__main__':
             times = times + time_cost
             X.append(times)
             Y.append(acc)
+            Z.append(reward)
 
             # print {action || accuracy || timecost}
-            print('\rEpisode {}\tAverage Score: {:.2f}'.format(episode,reward),'||', 'Take action: ',action, '||', 'Accuracy: ', acc, \
-            '||', 'Timecost: ', times)
-
+            print('---------------------------------------------------------------------------------------------------')
+            print('\rEpisode {}\tAverage Score: {:.2f}\tAccuracy: {}\tTimecost: {:.4f}'.format(episode,reward,acc,times),flush=True)
+            print('Take action:')
+            print(action[0:10:1])
+            print(action[10::1])
+            # print(format(action[10::1],'^20'))
+        if acc >= cora:
+            break
+        
 
     fig = plt.figure()
     ax = fig.add_subplot(111)
@@ -642,13 +679,22 @@ if __name__ == '__main__':
     plt.xlabel('Episode')
     plt.show()
     
+    dataframe_reward = pd.DataFrame(X, columns=['X'])
+    dataframe_reward = pd.concat([dataframe_reward, pd.DataFrame(Z,columns=['Z'])],axis=1)
+    dataframes_reward = pd.DataFrame(Z, columns=['Z'])
 
+
+    dataframes = pd.DataFrame(Y, columns=['Y'])
     dataframe = pd.DataFrame(X, columns=['X'])
     dataframe = pd.concat([dataframe, pd.DataFrame(Y,columns=['Y'])],axis=1)
 
-    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Cora/acc_gcn_ddpg.csv",header = False,index=False,sep=',')
+    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Cora(5)/acc_gcn_ddpg.csv",header = False,index=False,sep=',')
+    dataframes.to_csv("/home/fahao/Py_code/results/GCN-Cora(5)/acc_gcn_ddpg(round).csv",header = False,index=False,sep=',')
+    dataframe_reward.to_csv("/home/fahao/Py_code/results/GCN-Cora(5)/reward.csv",header = False,index=False,sep=',')
+    dataframes_reward.to_csv("/home/fahao/Py_code/results/GCN-Cora(5)/reward(round).csv",header = False,index=False,sep=',')
+
+
+
+
 
         
-
-        
-

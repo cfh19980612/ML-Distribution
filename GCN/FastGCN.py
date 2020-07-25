@@ -134,7 +134,7 @@ class GCNInfer(nn.Module):
 # create the subgraph
 def load_cora_data(Client, list_test, num_clients):
     # data = RedditDataset(self_loop=True)
-    data = citegrh.load_pubmed()
+    data = citegrh.load_citeseer()
     features = torch.FloatTensor(data.features)
     labels = torch.LongTensor(data.labels)
     train_mask = torch.BoolTensor(data.train_mask)
@@ -237,17 +237,16 @@ def load_cora_data(Client, list_test, num_clients):
     return g, g_test,norm_test,features_test,train_mask,test_mask,labels, labels_test, train_nid, Train_nid, test_nid, test_nid_test, in_feats, n_classes, n_test_samples, n_test_samples_test
 
 # run a subgraph
-def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,sampling):
+def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda):
     loss_fcn = nn.CrossEntropyLoss()
 
         # sampling
     time_now = time.time()
-    for nf in dgl.contrib.sampling.NeighborSampler(Graph, args.batch_size,  
-                                                            expand_factor = sampling,
+    for nf in dgl.contrib.sampling.LayerSampler(Graph, args.batch_size,  
+                                                            layer_sizes=[512,512],
                                                             neighbor_type='in',
                                                             shuffle=True,
                                                             num_workers=10,
-                                                            num_hops=args.n_layers+1,
                                                             seed_nodes=train_nid):
         nf.copy_from_parent()
         Model.train()
@@ -288,16 +287,15 @@ def genGraph(args,In_feats,N_classes,flag):
                         F.relu)
         return infer_model
 
-def inference(Graph,infer_model,args,Labels,Test_nid,In_feats,N_classes,N_test_samples,cuda,sampling):
+def inference(Graph,infer_model,args,Labels,Test_nid,In_feats,N_classes,N_test_samples,cuda):
 
     num_acc = 0.
-
-    for nf in dgl.contrib.sampling.NeighborSampler(Graph, args.test_batch_size,
-                                                        expand_factor=sampling,
-                                                        neighbor_type='in',
-                                                        num_workers=32,
-                                                        num_hops=args.n_layers+1,
-                                                        seed_nodes=Test_nid):
+    for nf in dgl.contrib.sampling.NeighborSampler(g, args.test_batch_size,
+                                                       g.number_of_nodes(),
+                                                       neighbor_type='in',
+                                                       num_workers=32,
+                                                       num_hops=args.n_layers+1,
+                                                       seed_nodes=test_nid):
         nf.copy_from_parent()
         infer_model.eval()
         with torch.no_grad():
@@ -339,12 +337,14 @@ def Gen_args(num):
 
 
 if __name__ == '__main__':
-    args = Gen_args(10)   # return the parameters
-    num_clients = 8
     #target
     cora = 0.83
     citeseer = 0.72
-    pubmed = 0.82
+    pubmed = 0.79
+    reddit = 0.97
+
+    args = Gen_args(10)   # return the parameters
+    num_clients = 5
 
     # DQN parameter
     A = 0.6
@@ -357,7 +357,7 @@ if __name__ == '__main__':
     time_cost_past = 5
 
     # Client graph list and test
-    node_list = list(range(19717))
+    node_list = list(range(3327))
     Client = [None]*num_clients
     for i in range(num_clients):
         Client[i] = node_list[i::num_clients]
@@ -391,34 +391,6 @@ if __name__ == '__main__':
         # labels2.cuda()
         # labels3.cuda()
         labels_test.cuda()
-    
-    # sampling list
-    layer_scale = np.array([1,1])
-    s_1 = np.array([])
-    s_2 = np.array([])
-    s_3 = np.array([])
-    s_4 = np.array([])
-    s_5 = np.array([])
-    s_6 = np.array([])
-    s_7 = np.array([])
-    s_8 = np.array([])
-    s_9 = np.array([])
-    s_0 = np.array([])
-    Batch_sampling_method = [s_0, s_1, s_2, s_3, s_4, s_5, s_6, s_7, s_8, s_9]
-
-    test_batch_sampling_method = np.array([])
-
-    #test sampling
-    for layer in range(args.n_layers + 1):
-        for nodes in range(g_test.number_of_nodes()):
-            test_batch_sampling_method = np.append(test_batch_sampling_method, 10000)
-
-    # train sampling
-    for i in range(num_clients):
-        for layer in range(args.n_layers + 1):
-            for nodes in range(g.number_of_nodes()):
-                temp = math.ceil(g.in_degree(nodes) * layer_scale[layer])
-                Batch_sampling_method[i] = np.append(Batch_sampling_method[i], temp)
 
     s = []
     s_ = []
@@ -427,7 +399,7 @@ if __name__ == '__main__':
     Loss = [None]*num_clients
     for epoch in range(args.n_epochs):
         for i in range(num_clients):
-            P[i], Time_cost[i], Loss[i] = runGraph(Model[i],g,args,Optimizer[i],labels,Train_nid[i],cuda,Batch_sampling_method[i])
+            P[i], Time_cost[i], Loss[i] = runGraph(Model[i],g,args,Optimizer[i],labels,Train_nid[i],cuda)
         
         # loss
         # loss = 0
@@ -456,16 +428,17 @@ if __name__ == '__main__':
             infer_param.data.copy_(param.data)
         
         # test 
-        acc = inference(g_test,infer_model,args,labels_test,test_nid_test,in_feats,n_classes,n_test_samples_test,cuda,test_batch_sampling_method)
+        acc = inference(g,infer_model,args,labels,test_nid,in_feats,n_classes,n_test_samples,cuda)
 
         if epoch > 0:
             times = times + time_cost
             X.append(times)
             Y.append(acc)
             print('Epoch: ',epoch,'||', 'Accuracy: ', acc, '||', 'Timecost: ', times)
-        
-        if acc >= pubmed:
+        if acc >= citeseer:
             break
+    
+
         
 
         
@@ -473,7 +446,6 @@ if __name__ == '__main__':
     dataframe = pd.DataFrame(X, columns=['X'])
     dataframe = pd.concat([dataframe, pd.DataFrame(Y,columns=['Y'])],axis=1)
     
-    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Pubmed(8)/acc_gcn_nonsampling.csv",header = False,index=False,sep=',')
-    dataframes.to_csv("/home/fahao/Py_code/results/GCN-Pubmed(8)/acc_gcn_nonsampling(round).csv",header = False,index=False,sep=',')
-
+    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Citeseer(5)/acc_gcn_FastGCN.csv",header = False,index=False,sep=',')
+    dataframes.to_csv("/home/fahao/Py_code/results/GCN-Citeseer(5)/acc_gcn_FastGCN(round).csv",header = False,index=False,sep=',')
         
