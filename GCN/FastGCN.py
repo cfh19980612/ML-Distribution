@@ -21,6 +21,7 @@ import os
 import time 
 import datetime
 import math
+import pynvml
 
 acc=0
 
@@ -237,18 +238,21 @@ def load_cora_data(Client, list_test, num_clients):
     return g, g_test,norm_test,features_test,train_mask,test_mask,labels, labels_test, train_nid, Train_nid, test_nid, test_nid_test, in_feats, n_classes, n_test_samples, n_test_samples_test
 
 # run a subgraph
-def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda):
+def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,pynvml):
     loss_fcn = nn.CrossEntropyLoss()
-
-        # sampling
-    time_now = time.time()
+    if cuda == True:
+        Model.cuda()
+    # sampling
+    # time_now = time.time()
+    time_cost = 0
     for nf in dgl.contrib.sampling.LayerSampler(Graph, args.batch_size,  
-                                                            layer_sizes=[512,512],
+                                                            layer_sizes=[1,1],
                                                             neighbor_type='in',
                                                             shuffle=True,
                                                             num_workers=10,
                                                             seed_nodes=train_nid):
         nf.copy_from_parent()
+        time_now = time.time()
         Model.train()
             # forward
         pred = Model(nf)
@@ -258,10 +262,14 @@ def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda):
         Optimizer.zero_grad()
         loss.backward()
         Optimizer.step()
-
-    time_next = time.time()
-    time_cost = round(time_next-time_now,4)
+        time_next = time.time()
+        time_cost += round(time_next-time_now,4)
     p = Model.state_dict()
+    if cuda == True:
+        Model.cpu()
+    handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+    meminfo = pynvml.nvmlDeviceGetMemoryInfo(handle)
+    print(meminfo.used)
 
     return p, time_cost, loss.data
 
@@ -343,6 +351,9 @@ if __name__ == '__main__':
     pubmed = 0.79
     reddit = 0.97
 
+    # GPU info
+    pynvml.nvmlInit()
+
     args = Gen_args(10)   # return the parameters
     num_clients = 5
 
@@ -371,19 +382,14 @@ if __name__ == '__main__':
     g, g_test,norm_test,features_test,train_mask,test_mask, \
         labels, labels_test, train_nid, Train_nid, test_nid, test_nid_test, \
             in_feats, n_classes, n_test_samples, n_test_samples_test = load_cora_data(Client, list_test, num_clients)
-
-    # initialize model and Opt
-    for i in range(num_clients):
-        Model[i], Optimizer[i] = genGraph(args,in_feats,n_classes,1)
     infer_model = genGraph(args,in_feats,n_classes,2)
-
     # gpu
     if args.gpu < 0:
         cuda = False
     else:
         cuda = True
-        for i in range(num_clients):
-            Model[i].cuda()
+        # for i in range(num_clients):
+        #     Model[i].cuda()
         infer_model.cuda()
 
         labels.cuda()
@@ -392,6 +398,11 @@ if __name__ == '__main__':
         # labels3.cuda()
         labels_test.cuda()
 
+    # initialize model and Opt
+    for i in range(num_clients):
+        Model[i], Optimizer[i] = genGraph(args,in_feats,n_classes,1)
+
+
     s = []
     s_ = []
     P = [None]*num_clients
@@ -399,7 +410,7 @@ if __name__ == '__main__':
     Loss = [None]*num_clients
     for epoch in range(args.n_epochs):
         for i in range(num_clients):
-            P[i], Time_cost[i], Loss[i] = runGraph(Model[i],g,args,Optimizer[i],labels,Train_nid[i],cuda)
+            P[i], Time_cost[i], Loss[i] = runGraph(Model[i],g,args,Optimizer[i],labels,Train_nid[i],cuda, pynvml)
         
         # loss
         # loss = 0
