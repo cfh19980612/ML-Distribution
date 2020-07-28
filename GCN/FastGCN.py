@@ -21,7 +21,6 @@ import os
 import time 
 import datetime
 import math
-import pynvml
 
 acc=0
 
@@ -238,7 +237,7 @@ def load_cora_data(Client, list_test, num_clients):
     return g, g_test,norm_test,features_test,train_mask,test_mask,labels, labels_test, train_nid, Train_nid, test_nid, test_nid_test, in_feats, n_classes, n_test_samples, n_test_samples_test
 
 # run a subgraph
-def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,pynvml):
+def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda):
     loss_fcn = nn.CrossEntropyLoss()
     if cuda == True:
         Model.cuda()
@@ -246,7 +245,7 @@ def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,pynvml):
     # time_now = time.time()
     time_cost = 0
     for nf in dgl.contrib.sampling.LayerSampler(Graph, args.batch_size,  
-                                                            layer_sizes=[1,1],
+                                                            layer_sizes=[512,512],
                                                             neighbor_type='in',
                                                             shuffle=True,
                                                             num_workers=10,
@@ -267,9 +266,6 @@ def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,pynvml):
     p = Model.state_dict()
     if cuda == True:
         Model.cpu()
-    handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-    meminfo = pynvml.nvmlDeviceGetMemoryInfo(handle)
-    print(meminfo.used)
 
     return p, time_cost, loss.data
 
@@ -352,7 +348,7 @@ if __name__ == '__main__':
     reddit = 0.97
 
     # GPU info
-    pynvml.nvmlInit()
+    # pynvml.nvmlInit()
 
     args = Gen_args(10)   # return the parameters
     num_clients = 5
@@ -410,7 +406,7 @@ if __name__ == '__main__':
     Loss = [None]*num_clients
     for epoch in range(args.n_epochs):
         for i in range(num_clients):
-            P[i], Time_cost[i], Loss[i] = runGraph(Model[i],g,args,Optimizer[i],labels,Train_nid[i],cuda, pynvml)
+            P[i], Time_cost[i], Loss[i] = runGraph(Model[i],g,args,Optimizer[i],labels,Train_nid[i],cuda)
         
         # loss
         # loss = 0
