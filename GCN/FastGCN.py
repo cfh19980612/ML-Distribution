@@ -1,3 +1,4 @@
+from __future__ import division
 import argparse, time, math
 import numpy as np
 import torch
@@ -21,6 +22,11 @@ import os
 import time 
 import datetime
 import math
+import scipy.sparse as sp
+from numpy import linalg as la
+from scipy.linalg import fractional_matrix_power
+
+
 
 acc=0
 
@@ -134,7 +140,7 @@ class GCNInfer(nn.Module):
 # create the subgraph
 def load_cora_data(Client, list_test, num_clients):
     # data = RedditDataset(self_loop=True)
-    data = citegrh.load_citeseer()
+    data = citegrh.load_cora()
     features = torch.FloatTensor(data.features)
     labels = torch.LongTensor(data.labels)
     train_mask = torch.BoolTensor(data.train_mask)
@@ -237,7 +243,7 @@ def load_cora_data(Client, list_test, num_clients):
     return g, g_test,norm_test,features_test,train_mask,test_mask,labels, labels_test, train_nid, Train_nid, test_nid, test_nid_test, in_feats, n_classes, n_test_samples, n_test_samples_test
 
 # run a subgraph
-def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda):
+def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,train_prob):
     loss_fcn = nn.CrossEntropyLoss()
     if cuda == True:
         Model.cuda()
@@ -245,10 +251,11 @@ def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda):
     # time_now = time.time()
     time_cost = 0
     for nf in dgl.contrib.sampling.LayerSampler(Graph, args.batch_size,  
-                                                            layer_sizes=[512,512],
+                                                            layer_sizes=[64,64],
+                                                            # node_prob=train_prob,
                                                             neighbor_type='in',
                                                             shuffle=True,
-                                                            num_workers=10,
+                                                            num_workers=32,
                                                             seed_nodes=train_nid):
         nf.copy_from_parent()
         time_now = time.time()
@@ -266,7 +273,7 @@ def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda):
     p = Model.state_dict()
     if cuda == True:
         Model.cpu()
-
+    print ('time: ',time_cost)
     return p, time_cost, loss.data
 
 # generate the subgraph's model and optimizer
@@ -291,14 +298,15 @@ def genGraph(args,In_feats,N_classes,flag):
                         F.relu)
         return infer_model
 
-def inference(Graph,infer_model,args,Labels,Test_nid,In_feats,N_classes,N_test_samples,cuda):
+def inference(Graph,infer_model,args,Labels,Test_nid,In_feats,N_classes,N_test_samples,cuda,test_prob):
 
     num_acc = 0.
-    for nf in dgl.contrib.sampling.NeighborSampler(g, args.test_batch_size,
-                                                       g.number_of_nodes(),
-                                                       neighbor_type='in',
-                                                       num_workers=32,
-                                                       num_hops=args.n_layers+1,
+    for nf in dgl.contrib.sampling.LayerSampler(g, args.test_batch_size,
+                                                       layer_sizes=[20000,20000],
+                                                        # node_prob=train_prob,
+                                                        neighbor_type='in',
+                                                        shuffle=True,
+                                                        num_workers=32,
                                                        seed_nodes=test_nid):
         nf.copy_from_parent()
         infer_model.eval()
@@ -318,13 +326,13 @@ def Gen_args(num):
             help="dropout probability")
     parser.add_argument("--gpu", type=int, default=0,
             help="gpu")
-    parser.add_argument("--lr", type=float, default=0.01,
+    parser.add_argument("--lr", type=float, default=0.001,
             help="learning rate")
     parser.add_argument("--n-epochs", type=int, default=1000,
             help="number of training epochs")
-    parser.add_argument("--batch-size", type=int, default=300,
+    parser.add_argument("--batch-size", type=int, default=256,
             help="batch size")
-    parser.add_argument("--test-batch-size", type=int, default=5000,
+    parser.add_argument("--test-batch-size", type=int, default=256,
             help="test batch size")
     parser.add_argument("--num-neighbors", type=int, default=num,
             help="number of neighbors to be sampled")
@@ -340,6 +348,25 @@ def Gen_args(num):
     return args
 
 
+def normalize(mx):
+    """Row-normalize sparse matrix"""
+    rowsum = np.array(mx.sum(1))
+    r_inv = np.power(rowsum, -1).flatten()
+    r_inv[np.isinf(r_inv)] = 0.
+    r_mat_inv = sp.diags(r_inv)
+    mx = r_mat_inv.dot(mx)
+    return mx
+
+def sparse_mx_to_torch_sparse_tensor(sparse_mx):
+    """Convert a scipy sparse matrix to a torch sparse tensor."""
+    sparse_mx = sparse_mx.tocoo().astype(np.float32)
+    indices = torch.from_numpy(
+        np.vstack((sparse_mx.row, sparse_mx.col)).astype(np.int64))
+    values = torch.from_numpy(sparse_mx.data)
+    shape = torch.Size(sparse_mx.shape)
+    return torch.sparse.FloatTensor(indices, values, shape)
+
+
 if __name__ == '__main__':
     #target
     cora = 0.83
@@ -351,7 +378,7 @@ if __name__ == '__main__':
     # pynvml.nvmlInit()
 
     args = Gen_args(10)   # return the parameters
-    num_clients = 5
+    num_clients = 1
 
     # DQN parameter
     A = 0.6
@@ -364,21 +391,50 @@ if __name__ == '__main__':
     time_cost_past = 5
 
     # Client graph list and test
-    node_list = list(range(3327))
-    Client = [None]*num_clients
+    node_list = list(range(2708))
+    Client = [None for i in range (num_clients)]
     for i in range(num_clients):
         Client[i] = node_list[i::num_clients]
     list_test = node_list[0::1]
 
     # Model and Opt list
-    Model = [None]*num_clients
-    Optimizer = [None]*num_clients
+    Model = [None for i in range (num_clients)]
+    Optimizer = [None for i in range (num_clients)]
+
+    # Input Example
+    train_prob = np.array([])
+    test_prob = np.array([])
+    
 
     # GCN parameter
     g, g_test,norm_test,features_test,train_mask,test_mask, \
         labels, labels_test, train_nid, Train_nid, test_nid, test_nid_test, \
             in_feats, n_classes, n_test_samples, n_test_samples_test = load_cora_data(Client, list_test, num_clients)
     infer_model = genGraph(args,in_feats,n_classes,2)
+
+    # normal Laplacian
+    degree = g.out_degrees().numpy()
+    D = np.mat(np.zeros((g.number_of_nodes(),g.number_of_nodes())))
+    # D = sp.coo_matrix((Degree,(g.number_of_nodes(),g.number_of_nodes())))
+    for i in range (g.number_of_nodes()):
+        D[i,i] = degree[i]
+    A = g.adjacency_matrix(True).to_dense().numpy()
+    D = fractional_matrix_power(D,-0.5)
+    P = np.dot(D,A,D)
+
+    # calculate the probability for each node
+    norm_degree = np.linalg.norm(P,axis=0,keepdims=True).flatten()
+    all_degree = 0
+    for i in range (g.number_of_nodes()):
+        all_degree += norm_degree[i]
+    train_probs = []
+    for i in range (g.number_of_nodes()):
+        train_probs.append(norm_degree[i]/all_degree)
+    test_probs = [1 for i in range (g.number_of_nodes())]
+
+    # for i in range (g.number_of_nodes()):
+    #     train_probs.append()
+
     # gpu
     if args.gpu < 0:
         cuda = False
@@ -398,15 +454,21 @@ if __name__ == '__main__':
     for i in range(num_clients):
         Model[i], Optimizer[i] = genGraph(args,in_feats,n_classes,1)
 
+    # Valueheterogeneous
+    for nodes in range(g.number_of_nodes()):
+        train_prob = np.append(train_prob, 50)
+
+    for nodes in range(g.number_of_nodes()):
+        test_prob = np.append(test_prob, 100)
 
     s = []
     s_ = []
-    P = [None]*num_clients
-    Time_cost = [None]*num_clients
-    Loss = [None]*num_clients
+    P = [None for i in range (num_clients)]
+    Time_cost = [None for i in range (num_clients)]
+    Loss = [None for i in range (num_clients)]
     for epoch in range(args.n_epochs):
         for i in range(num_clients):
-            P[i], Time_cost[i], Loss[i] = runGraph(Model[i],g,args,Optimizer[i],labels,Train_nid[i],cuda)
+            P[i], Time_cost[i], Loss[i] = runGraph(Model[i],g,args,Optimizer[i],labels,Train_nid[i],cuda,train_prob)
         
         # loss
         # loss = 0
@@ -435,14 +497,14 @@ if __name__ == '__main__':
             infer_param.data.copy_(param.data)
         
         # test 
-        acc = inference(g,infer_model,args,labels,test_nid,in_feats,n_classes,n_test_samples,cuda)
+        acc = inference(g,infer_model,args,labels,test_nid,in_feats,n_classes,n_test_samples,cuda,test_prob)
 
         if epoch > 0:
             times = times + time_cost
             X.append(times)
             Y.append(acc)
             print('Epoch: ',epoch,'||', 'Accuracy: ', acc, '||', 'Timecost: ', times)
-        if acc >= citeseer:
+        if acc >= pubmed:
             break
     
 
@@ -453,6 +515,6 @@ if __name__ == '__main__':
     dataframe = pd.DataFrame(X, columns=['X'])
     dataframe = pd.concat([dataframe, pd.DataFrame(Y,columns=['Y'])],axis=1)
     
-    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Citeseer(5)/acc_gcn_FastGCN.csv",header = False,index=False,sep=',')
-    dataframes.to_csv("/home/fahao/Py_code/results/GCN-Citeseer(5)/acc_gcn_FastGCN(round).csv",header = False,index=False,sep=',')
+    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Cora(1)/acc_gcn_FastGCN.csv",header = False,index=False,sep=',')
+    dataframes.to_csv("/home/fahao/Py_code/results/GCN-Cora(1)/acc_gcn_FastGCN(round).csv",header = False,index=False,sep=',')
         
