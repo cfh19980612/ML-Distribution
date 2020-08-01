@@ -28,6 +28,8 @@ from sklearn.decomposition import PCA
 from collections import deque
 import matplotlib.pyplot as plt
 import progressbar
+import operator
+from functools import reduce
 
 acc=0
 
@@ -49,11 +51,11 @@ class gcnEnv(gym.Env):
     def __init__(self):
 
         self.args = Gen_args(8)   # return the parameters
-        self.num_clients = 5
+        self.num_clients = 8
 
         # model and Opt list
-        self.Model = [None]*self.num_clients
-        self.Optimizer = [None]*self.num_clients
+        self.Model = [None for i in range (self.num_clients)]
+        self.Optimizer = [None for i in range (self.num_clients)]
 
         # DQN parameter
         A = 0.6
@@ -64,8 +66,8 @@ class gcnEnv(gym.Env):
         time_cost_past = 5
 
         # Client graph list and test
-        node_list = list(range(2708))
-        Client = [None]*self.num_clients
+        node_list = list(range(3327))
+        Client = [None for i in range (self.num_clients)]
         for i in range(self.num_clients):
             Client[i] = node_list[i::self.num_clients]
         list_test = node_list[0::1]
@@ -123,7 +125,7 @@ class gcnEnv(gym.Env):
         test_batch_sampling_method = np.array([])
 
         layer_size = np.array([2,1])
-        Layer_scale = [None]*self.num_clients
+        Layer_scale = [None for i in range (self.num_clients)]
         j = 0
         for i in range(self.num_clients):
             Layer_scale[i] = action[j:j+2:1]
@@ -141,32 +143,50 @@ class gcnEnv(gym.Env):
                     temp = math.ceil(self.g.in_degree(nodes) * Layer_scale[i][layer])
                     Batch_sampling_method[i] = np.append(Batch_sampling_method[i], temp)
 
-        P = [None]*self.num_clients
-        Time_cost = [None]*self.num_clients
-        Loss = [None]*self.num_clients
+        P = [None for i in range (self.num_clients)]
+        Time_cost = [None for i in range (self.num_clients)]
+        Loss = [None for i in range (self.num_clients)]
         for i in range(self.num_clients):
             P[i], Time_cost[i], Loss[i] = runGraph(self.Model[i],self.g,self.args,self.Optimizer[i],\
                 self.labels,self.Train_nid[i],self.cuda,Batch_sampling_method[i])
-        
+
+
+#################################################################################################################################        
         # get local model for state
-        S_local = [None]*self.num_clients
+        S_local = [None for i in range(self.num_clients)]
         for i in range(self.num_clients):
             parm_local = {}
             for name, parameters in self.Model[i].named_parameters():
                     #print(name,':',parameters.size())
                 parm_local[name]=parameters.detach().cpu().numpy()
-            s_1 = parm_local['layers.0.linear.weight'][0::]
-            pca=PCA(n_components=2)
-            pca.fit(s_1)  
-            s_11 = pca.transform(s_1).flatten()
-            s_2 = parm_local['layers.0.linear.bias'][0::]
-            s_3 = parm_local['layers.1.linear.weight'][0::]
-                # print(parm['layers.1.linear.weight'][0::])
-            pca=PCA(n_components=2)
-            pca.fit(s_3)  
-            s_33 = pca.transform(s_3).flatten()
-            s_4 = parm_local['layers.1.linear.bias'][0::]
-            S_local[i] = np.concatenate((s_11,s_2,s_33,s_4),axis=0)
+                
+            S_local[i] = []
+            for a in parm_local['layers.0.linear.weight'][0::].flatten():
+                aa = a
+                S_local[i].append(aa)
+            for a in parm_local['layers.0.linear.bias'][0::]:
+                aa = a
+                S_local[i].append(aa)
+            for a in parm_local['layers.1.linear.weight'][0::].flatten():
+                aa = a
+                S_local[i].append(aa)
+            for a in parm_local['layers.1.linear.bias'][0::]:
+                aa = a
+                S_local[i].append(aa)
+        pca=PCA(n_components=2)
+        s_local=pca.fit_transform(S_local)
+
+        x = []
+        y = []
+        for i in range (self.num_clients):
+            for j in range (1):
+                x.append(s_local[i,j])
+                y.append(s_local[i,j+1])
+        dataframe_dis = pd.DataFrame(x, columns=['X'])
+        dataframe_dis = pd.concat([dataframe_dis, pd.DataFrame(y,columns=['Y'])],axis=1)
+        dataframe_dis.to_csv("/home/fahao/Py_code/results/GCN-Pubmed(10)/distribution.csv",header = False,index=False,sep=',')
+#################################################################################################################################
+
 
         # time cost
         time_cost = 0
@@ -185,87 +205,114 @@ class gcnEnv(gym.Env):
         for i in range(self.num_clients):
             self.Model[i].load_state_dict(P[0])
 
-        # test
+        # aggregation
         for infer_param, param in zip(self.infer_model.parameters(), self.Model[0].parameters()):  
             infer_param.data.copy_(param.data)
-        
+        # test
         acc = inference(self.g_test,self.infer_model,self.args,self.labels_test,self.test_nid_test,self.in_feats,\
             self.n_classes,self.n_test_samples_test,self.cuda,test_batch_sampling_method)
         
         # get state
+#################################################################################################################################
         # global model
         parm = {}
+        
         for name, parameters in self.infer_model.named_parameters():
-                #print(name,':',parameters.size())
-            parm[name]=parameters.detach().cpu().numpy()
-        s_1 = parm['layers.0.linear.weight'][0::]
+            #print(name,':',parameters.size())
+            parm[name]=parameters.detach().cpu().numpy()     
+        S_global = [None for i in range (2)]
+        for i in range (2):
+            S_global[i] = []
+            for a in parm['layers.0.linear.weight'][0::].flatten():
+                aa = a
+                S_global[i].append(aa)
+            for a in parm['layers.0.linear.bias'][0::]:
+                aa = a
+                S_global[i].append(aa)
+            for a in parm['layers.1.linear.weight'][0::].flatten():
+                aa = a
+                S_global[i].append(aa)
+            for a in parm['layers.1.linear.bias'][0::]:
+                aa = a
+                S_global[i].append(aa)
         pca=PCA(n_components=2)
-        pca.fit(s_1)  
-        s_11 = pca.transform(s_1).flatten()
-        s_2 = parm['layers.0.linear.bias'][0::]
-        s_3 = parm['layers.1.linear.weight'][0::]
-            # print(parm['layers.1.linear.weight'][0::])
-        pca=PCA(n_components=2)
-        pca.fit(s_3)  
-        s_33 = pca.transform(s_3).flatten()
-        s_4 = parm['layers.1.linear.bias'][0::]
+        s_global=pca.fit_transform(S_global)
+#################################################################################################################################
 
-        S_global = np.concatenate((s_11,s_2,s_33,s_4),axis=0)
-    
-        reward = pow(32,acc-0.8) - math.log(1 + 30*time_cost)
+
+
+        reward = pow(32,acc-0.7) - math.log(1 + 30*time_cost)
         # reward = pow(10,acc-0.8) - 60*time_cost
         # reward = 0 - pow(64,0 - 100*time_cost)
         # reward = pow(64,acc-0.8)
         
         # next state
-        S = S_global
+        S = s_global[0]
         for i in range(self.num_clients):
-            S = np.concatenate((S,S_local[i]),axis=0)
+            S = np.concatenate((S,s_local[i]),axis=0)
 
         return S, reward, acc, time_cost
     
+
+
+
+
     def reset(self):
         self.counts = 0
-        S_local = [None]*self.num_clients
+        S_local = [None for i in range (self.num_clients)]
         parm = {}
-
+        for name, parameters in self.Model[0].named_parameters():
+            print(name,':',parameters.size())
+        s = [None for i in range(self.num_clients)]
         for i in range(self.num_clients):
             parm_local = {}
             for name, parameters in self.Model[i].named_parameters():
                     #print(name,':',parameters.size())
                 parm_local[name]=parameters.detach().cpu().numpy()
-            s_1 = parm_local['layers.0.linear.weight'][0::]
-            pca=PCA(n_components=2)
-            pca.fit(s_1)  
-            s_11 = pca.transform(s_1).flatten()
-            s_2 = parm_local['layers.0.linear.bias'][0::]
-            s_3 = parm_local['layers.1.linear.weight'][0::]
-                # print(parm['layers.1.linear.weight'][0::])
-            pca=PCA(n_components=2)
-            pca.fit(s_3)  
-            s_33 = pca.transform(s_3).flatten()
-            s_4 = parm_local['layers.1.linear.bias'][0::]
-            S_local[i] = np.concatenate((s_11,s_2,s_33,s_4),axis=0)
+                
+            s[i] = []
+            for a in parm_local['layers.0.linear.weight'][0::].flatten():
+                aa = a
+                s[i].append(aa)
+            for a in parm_local['layers.0.linear.bias'][0::]:
+                aa = a
+                s[i].append(aa)
+            for a in parm_local['layers.1.linear.weight'][0::].flatten():
+                aa = a
+                s[i].append(aa)
+            for a in parm_local['layers.1.linear.bias'][0::]:
+                aa = a
+                s[i].append(aa)           
+        pca=PCA(n_components=2)
+        S_local_new=pca.fit_transform(s)
+        
+
 
         for name, parameters in self.infer_model.named_parameters():
                 #print(name,':',parameters.size())
             parm[name]=parameters.detach().cpu().numpy()
-        s_1 = parm['layers.0.linear.weight'][0::]
+        S_global = [None for i in range (2)]
+        for i in range (2):
+            S_global[i] = []
+            for a in parm['layers.0.linear.weight'][0::].flatten():
+                aa = a
+                S_global[i].append(aa)
+            for a in parm['layers.0.linear.bias'][0::]:
+                aa = a
+                S_global[i].append(aa)
+            for a in parm['layers.1.linear.weight'][0::].flatten():
+                aa = a
+                S_global[i].append(aa)
+            for a in parm['layers.1.linear.bias'][0::]:
+                aa = a
+                S_global[i].append(aa)
         pca=PCA(n_components=2)
-        pca.fit(s_1)  
-        s_11 = pca.transform(s_1).flatten()
-        s_2 = parm['layers.0.linear.bias'][0::]
-        s_3 = parm['layers.1.linear.weight'][0::]
-            # print(parm['layers.1.linear.weight'][0::])
-        pca=PCA(n_components=2)
-        pca.fit(s_3)  
-        s_33 = pca.transform(s_3).flatten()
-        s_4 = parm['layers.1.linear.bias'][0::]
-        S_global = np.concatenate((s_11,s_2,s_33,s_4),axis=0)
 
-        S = S_global
+        s_global=pca.fit_transform(S_global)
+
+        S = s_global[0]
         for i in range(self.num_clients):
-            S = np.concatenate((S,S_local[i]),axis=0)
+            S = np.concatenate((S,S_local_new[i]),axis=0)
         return S
         
     def render(self, mode='human'):
@@ -375,7 +422,7 @@ class GCNInfer(nn.Module):
 # create the subgraph
 def load_cora_data(args, Client, list_test, num_clients):
  # data = RedditDataset(self_loop=True)
-    data = citegrh.load_cora()
+    data = citegrh.load_citeseer()
     features = torch.FloatTensor(data.features)
     labels = torch.LongTensor(data.labels)
     train_mask = torch.BoolTensor(data.train_mask)
@@ -480,7 +527,8 @@ def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,sampling):
     loss_fcn = nn.CrossEntropyLoss()
 
         # sampling
-    time_now = time.time()
+    # time_now = time.time()
+    time_cost = 0
     for nf in dgl.contrib.sampling.NeighborSampler(Graph, args.batch_size,  
                                                             expand_factor = sampling,
                                                             neighbor_type='in',
@@ -489,6 +537,8 @@ def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,sampling):
                                                             num_hops=args.n_layers+1,
                                                             seed_nodes=train_nid):
         nf.copy_from_parent()
+
+        time_now = time.time()
         Model.train()
             # forward
         pred = Model(nf)
@@ -498,9 +548,10 @@ def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,sampling):
         Optimizer.zero_grad()
         loss.backward()
         Optimizer.step()
-
-    time_next = time.time()
-    time_cost = round(time_next-time_now,4)
+        time_next = time.time()
+        time_cost += round(time_next-time_now,4)
+    # time_next = time.time()
+    # time_cost = round(time_next-time_now,4)
     p = Model.state_dict()
 
     return p, time_cost, loss.data
@@ -593,7 +644,7 @@ def Gen_args(num):
             help="learning rate")
     parser.add_argument("--n-epochs", type=int, default=1000,
             help="number of training epochs")
-    parser.add_argument("--batch-size", type=int, default=300,
+    parser.add_argument("--batch-size", type=int, default=256,
             help="batch size")
     parser.add_argument("--test-batch-size", type=int, default=5000,
             help="test batch size")
@@ -625,7 +676,7 @@ if __name__ == '__main__':
     Z = []  # reward list
     times = 0
     env = gcnEnv()  # env
-    agent = Agent(state_size=414, action_size=20, random_seed=2)  # agent
+    agent = Agent(state_size=18, action_size=20, random_seed=2)  # agent
     print_every=100 
     max_t = 10
     scores_deque = deque(maxlen=print_every)
@@ -633,9 +684,10 @@ if __name__ == '__main__':
     max_value = 500
     for episode in range(1000):
         # initial env and agent
-        state = env.reset()
-        agent.reset()
-        score = 0
+        if episode == 0:
+            state = env.reset()
+            agent.reset()
+            score = 0
 
         # choose an action
         action = agent.act(state)
@@ -668,7 +720,7 @@ if __name__ == '__main__':
             print(action[0:10:1])
             print(action[10::1])
             # print(format(action[10::1],'^20'))
-        if acc >= cora:
+        if acc >= citeseer:
             break
         
 
@@ -688,10 +740,10 @@ if __name__ == '__main__':
     dataframe = pd.DataFrame(X, columns=['X'])
     dataframe = pd.concat([dataframe, pd.DataFrame(Y,columns=['Y'])],axis=1)
 
-    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Cora(5)/acc_gcn_ddpg.csv",header = False,index=False,sep=',')
-    dataframes.to_csv("/home/fahao/Py_code/results/GCN-Cora(5)/acc_gcn_ddpg(round).csv",header = False,index=False,sep=',')
-    dataframe_reward.to_csv("/home/fahao/Py_code/results/GCN-Cora(5)/reward.csv",header = False,index=False,sep=',')
-    dataframes_reward.to_csv("/home/fahao/Py_code/results/GCN-Cora(5)/reward(round).csv",header = False,index=False,sep=',')
+    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Citeseer(8)/acc_gcn_ddpg.csv",header = False,index=False,sep=',')
+    dataframes.to_csv("/home/fahao/Py_code/results/GCN-Citeseer(8)/acc_gcn_ddpg(round).csv",header = False,index=False,sep=',')
+    dataframe_reward.to_csv("/home/fahao/Py_code/results/GCN-Citeseer(8)/reward.csv",header = False,index=False,sep=',')
+    dataframes_reward.to_csv("/home/fahao/Py_code/results/GCN-Citeseer(8)/reward(round).csv",header = False,index=False,sep=',')
 
 
 

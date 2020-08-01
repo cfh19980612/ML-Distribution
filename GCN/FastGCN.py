@@ -140,7 +140,7 @@ class GCNInfer(nn.Module):
 # create the subgraph
 def load_cora_data(Client, list_test, num_clients):
     # data = RedditDataset(self_loop=True)
-    data = citegrh.load_cora()
+    data = citegrh.load_citeseer()
     features = torch.FloatTensor(data.features)
     labels = torch.LongTensor(data.labels)
     train_mask = torch.BoolTensor(data.train_mask)
@@ -251,7 +251,7 @@ def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,train_prob):
     # time_now = time.time()
     time_cost = 0
     for nf in dgl.contrib.sampling.LayerSampler(Graph, args.batch_size,  
-                                                            layer_sizes=[512,512],
+                                                            layer_sizes=[64,64],
                                                             node_prob=train_prob,
                                                             neighbor_type='in',
                                                             shuffle=True,
@@ -273,7 +273,7 @@ def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,train_prob):
     p = Model.state_dict()
     if cuda == True:
         Model.cpu()
-    print ('time: ',time_cost)
+    # print ('time: ',time_cost)
     return p, time_cost, loss.data
 
 # generate the subgraph's model and optimizer
@@ -326,13 +326,13 @@ def Gen_args(num):
             help="dropout probability")
     parser.add_argument("--gpu", type=int, default=0,
             help="gpu")
-    parser.add_argument("--lr", type=float, default=0.001,
+    parser.add_argument("--lr", type=float, default=0.01,
             help="learning rate")
     parser.add_argument("--n-epochs", type=int, default=1000,
             help="number of training epochs")
     parser.add_argument("--batch-size", type=int, default=256,
             help="batch size")
-    parser.add_argument("--test-batch-size", type=int, default=256,
+    parser.add_argument("--test-batch-size", type=int, default=5000,
             help="test batch size")
     parser.add_argument("--num-neighbors", type=int, default=num,
             help="number of neighbors to be sampled")
@@ -371,14 +371,14 @@ if __name__ == '__main__':
     #target
     cora = 0.83
     citeseer = 0.72
-    pubmed = 0.79
+    pubmed = 0.82
     reddit = 0.97
 
     # GPU info
     # pynvml.nvmlInit()
 
     args = Gen_args(10)   # return the parameters
-    num_clients = 1
+    num_clients = 8
 
     # DQN parameter
     A = 0.6
@@ -391,7 +391,7 @@ if __name__ == '__main__':
     time_cost_past = 5
 
     # Client graph list and test
-    node_list = list(range(2708))
+    node_list = list(range(3327))
     Client = [None for i in range (num_clients)]
     for i in range(num_clients):
         Client[i] = node_list[i::num_clients]
@@ -425,11 +425,12 @@ if __name__ == '__main__':
     # calculate the probability for each node
     norm_degree = np.linalg.norm(P,axis=0,keepdims=True).flatten()
     all_degree = 0
+    train_probs = np.array([])
+    test_probs = np.array([])
     for i in range (g.number_of_nodes()):
         all_degree += norm_degree[i]
-    train_probs = []
     for i in range (g.number_of_nodes()):
-        train_probs.append(round(norm_degree[i]/all_degree,6))
+        train_probs = np.append(train_probs, round(norm_degree[i]/all_degree,6))
     test_probs = [1.000000 for i in range (g.number_of_nodes())]
 
     # for i in range (g.number_of_nodes()):
@@ -456,11 +457,9 @@ if __name__ == '__main__':
 
     # Valueheterogeneous
     for nodes in range(g.number_of_nodes()):
-        train_prob = np.append(train_prob, 50)
-    print (len(train_prob))
-    print (len(train_probs))
+        train_prob = np.append(train_prob, 0.000500)
     for nodes in range(g.number_of_nodes()):
-        test_prob = np.append(test_prob, 100)
+        test_prob = np.append(test_prob, 1)
 
     s = []
     s_ = []
@@ -498,14 +497,14 @@ if __name__ == '__main__':
             infer_param.data.copy_(param.data)
         
         # test 
-        acc = inference(g,infer_model,args,labels,test_nid,in_feats,n_classes,n_test_samples,cuda,test_probs)
+        acc = inference(g,infer_model,args,labels,test_nid,in_feats,n_classes,n_test_samples,cuda,test_prob)
 
         if epoch > 0:
             times = times + time_cost
             X.append(times)
             Y.append(acc)
             print('Epoch: ',epoch,'||', 'Accuracy: ', acc, '||', 'Timecost: ', times)
-        if acc >= pubmed:
+        if acc >= citeseer:
             break
     
 
@@ -516,6 +515,6 @@ if __name__ == '__main__':
     dataframe = pd.DataFrame(X, columns=['X'])
     dataframe = pd.concat([dataframe, pd.DataFrame(Y,columns=['Y'])],axis=1)
     
-    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Cora(1)/acc_gcn_FastGCN.csv",header = False,index=False,sep=',')
-    dataframes.to_csv("/home/fahao/Py_code/results/GCN-Cora(1)/acc_gcn_FastGCN(round).csv",header = False,index=False,sep=',')
+    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Citeseer(8)/acc_gcn_FastGCN.csv",header = False,index=False,sep=',')
+    dataframes.to_csv("/home/fahao/Py_code/results/GCN-Citeseer(8)/acc_gcn_FastGCN(round).csv",header = False,index=False,sep=',')
         

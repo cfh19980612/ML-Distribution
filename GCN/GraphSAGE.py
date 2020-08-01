@@ -420,8 +420,10 @@ if __name__ == '__main__':
     for i in range(num_clients):
         for layer in range(args.n_layers + 1):
             for nodes in range(g.number_of_nodes()):
-                temp = math.ceil(g.in_degree(nodes) * layer_scale[layer])
-                Batch_sampling_method[i] = np.append(Batch_sampling_method[i], temp)
+                if layer == 0:
+                    Batch_sampling_method[i] = np.append(Batch_sampling_method[i], 25)
+                else:
+                    Batch_sampling_method[i] = np.append(Batch_sampling_method[i], 10)
 
     s = []
     s_ = []
@@ -476,7 +478,7 @@ if __name__ == '__main__':
     dataframe = pd.DataFrame(X, columns=['X'])
     dataframe = pd.concat([dataframe, pd.DataFrame(Y,columns=['Y'])],axis=1)
     
-    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Citeseer(8)/acc_gcn_nonsampling.csv",header = False,index=False,sep=',')
-    dataframes.to_csv("/home/fahao/Py_code/results/GCN-Citeseer(8)/acc_gcn_nonsampling(round).csv",header = False,index=False,sep=',')
+    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Citeseer(8)/acc_gcn_SAGE.csv",header = False,index=False,sep=',')
+    dataframes.to_csv("/home/fahao/Py_code/results/GCN-Citeseer(8)/acc_gcn_SAGE(round).csv",header = False,index=False,sep=',')
 
         
