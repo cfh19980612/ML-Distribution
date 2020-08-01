@@ -251,8 +251,8 @@ def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,train_prob):
     # time_now = time.time()
     time_cost = 0
     for nf in dgl.contrib.sampling.LayerSampler(Graph, args.batch_size,  
-                                                            layer_sizes=[64,64],
-                                                            # node_prob=train_prob,
+                                                            layer_sizes=[512,512],
+                                                            node_prob=train_prob,
                                                             neighbor_type='in',
                                                             shuffle=True,
                                                             num_workers=32,
@@ -303,7 +303,7 @@ def inference(Graph,infer_model,args,Labels,Test_nid,In_feats,N_classes,N_test_s
     num_acc = 0.
     for nf in dgl.contrib.sampling.LayerSampler(g, args.test_batch_size,
                                                        layer_sizes=[20000,20000],
-                                                        # node_prob=train_prob,
+                                                        node_prob=test_prob,
                                                         neighbor_type='in',
                                                         shuffle=True,
                                                         num_workers=32,
@@ -429,8 +429,8 @@ if __name__ == '__main__':
         all_degree += norm_degree[i]
     train_probs = []
     for i in range (g.number_of_nodes()):
-        train_probs.append(norm_degree[i]/all_degree)
-    test_probs = [1 for i in range (g.number_of_nodes())]
+        train_probs.append(round(norm_degree[i]/all_degree,6))
+    test_probs = [1.000000 for i in range (g.number_of_nodes())]
 
     # for i in range (g.number_of_nodes()):
     #     train_probs.append()
@@ -457,7 +457,8 @@ if __name__ == '__main__':
     # Valueheterogeneous
     for nodes in range(g.number_of_nodes()):
         train_prob = np.append(train_prob, 50)
-
+    print (len(train_prob))
+    print (len(train_probs))
     for nodes in range(g.number_of_nodes()):
         test_prob = np.append(test_prob, 100)
 
@@ -468,7 +469,7 @@ if __name__ == '__main__':
     Loss = [None for i in range (num_clients)]
     for epoch in range(args.n_epochs):
         for i in range(num_clients):
-            P[i], Time_cost[i], Loss[i] = runGraph(Model[i],g,args,Optimizer[i],labels,Train_nid[i],cuda,train_prob)
+            P[i], Time_cost[i], Loss[i] = runGraph(Model[i],g,args,Optimizer[i],labels,Train_nid[i],cuda,train_probs)
         
         # loss
         # loss = 0
@@ -497,7 +498,7 @@ if __name__ == '__main__':
             infer_param.data.copy_(param.data)
         
         # test 
-        acc = inference(g,infer_model,args,labels,test_nid,in_feats,n_classes,n_test_samples,cuda,test_prob)
+        acc = inference(g,infer_model,args,labels,test_nid,in_feats,n_classes,n_test_samples,cuda,test_probs)
 
         if epoch > 0:
             times = times + time_cost
