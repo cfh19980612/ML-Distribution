@@ -134,7 +134,7 @@ class GCNInfer(nn.Module):
 # create the subgraph
 def load_cora_data(Client, list_test, num_clients):
     # data = RedditDataset(self_loop=True)
-    data = citegrh.load_citeseer()
+    data = citegrh.load_pubmed()
     features = torch.FloatTensor(data.features)
     labels = torch.LongTensor(data.labels)
     train_mask = torch.BoolTensor(data.train_mask)
@@ -243,11 +243,15 @@ def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,sampling):
         # sampling
     # time_now = time.time()
     time_cost = 0
+    if cuda:
+        Model.cuda()
+        Labels.cuda()
+        
     for nf in dgl.contrib.sampling.NeighborSampler(Graph, args.batch_size,  
                                                             expand_factor = sampling,
                                                             neighbor_type='in',
                                                             shuffle=True,
-                                                            num_workers=10,
+                                                            num_workers=16,
                                                             num_hops=args.n_layers+1,
                                                             seed_nodes=train_nid):
         nf.copy_from_parent()
@@ -266,7 +270,10 @@ def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,cuda,sampling):
         time_cost += round(time_next-time_now,4)
     # time_cost = round(time_next-time_now,4)
     p = Model.state_dict()
-
+    if cuda:
+        Model.cpu()
+        Labels.cpu()
+        torch.cuda.empty_cache()
     return p, time_cost, loss.data
 
 # generate the subgraph's model and optimizer
@@ -294,7 +301,9 @@ def genGraph(args,In_feats,N_classes,flag):
 def inference(Graph,infer_model,args,Labels,Test_nid,In_feats,N_classes,N_test_samples,cuda,sampling):
 
     num_acc = 0.
-
+    if cuda:
+        Labels.cuda()
+        infer_model.cuda()
     for nf in dgl.contrib.sampling.NeighborSampler(Graph, args.test_batch_size,
                                                         expand_factor=sampling,
                                                         neighbor_type='in',
@@ -309,6 +318,10 @@ def inference(Graph,infer_model,args,Labels,Test_nid,In_feats,N_classes,N_test_s
             batch_labels = Labels[batch_nids]
             num_acc += (pred.argmax(dim=1) == batch_labels).sum().cpu().item()
     acc = round(num_acc/N_test_samples,4)
+    if cuda:
+        infer_model.cpu()
+        Labels.cpu()
+        torch.cuda.empty_cache()
     return acc
 
 
@@ -323,7 +336,7 @@ def Gen_args(num):
             help="learning rate")
     parser.add_argument("--n-epochs", type=int, default=1000,
             help="number of training epochs")
-    parser.add_argument("--batch-size", type=int, default=256,
+    parser.add_argument("--batch-size", type=int, default=128,
             help="batch size")
     parser.add_argument("--test-batch-size", type=int, default=5000,
             help="test batch size")
@@ -360,7 +373,7 @@ if __name__ == '__main__':
     time_cost_past = 5
 
     # Client graph list and test
-    node_list = list(range(3327))
+    node_list = list(range(19717))
     Client = [None for i in range (num_clients)]
     for i in range(num_clients):
         Client[i] = node_list[i::num_clients]
@@ -385,15 +398,6 @@ if __name__ == '__main__':
         cuda = False
     else:
         cuda = True
-        for i in range(num_clients):
-            Model[i].cuda()
-        infer_model.cuda()
-
-        labels.cuda()
-        # labels1.cuda()
-        # labels2.cuda()
-        # labels3.cuda()
-        labels_test.cuda()
     
     # sampling list
     layer_scale = np.array([1,1])
@@ -467,7 +471,7 @@ if __name__ == '__main__':
             Y.append(acc)
             print('Epoch: ',epoch,'||', 'Accuracy: ', acc, '||', 'Timecost: ', times)
         
-        if acc >= citeseer:
+        if acc >= pubmed:
             break
         
 
@@ -476,7 +480,7 @@ if __name__ == '__main__':
     dataframe = pd.DataFrame(X, columns=['X'])
     dataframe = pd.concat([dataframe, pd.DataFrame(Y,columns=['Y'])],axis=1)
     
-    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Citeseer(8)/acc_gcn_nonsampling.csv",header = False,index=False,sep=',')
-    dataframes.to_csv("/home/fahao/Py_code/results/GCN-Citeseer(8)/acc_gcn_nonsampling(round).csv",header = False,index=False,sep=',')
+    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Pubmed(8)/acc_gcn_nonsampling.csv",header = False,index=False,sep=',')
+    dataframes.to_csv("/home/fahao/Py_code/results/GCN-Pubmed(8)/acc_gcn_nonsampling(round).csv",header = False,index=False,sep=',')
 
         
