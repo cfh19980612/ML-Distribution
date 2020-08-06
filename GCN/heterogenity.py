@@ -30,6 +30,8 @@ import matplotlib.pyplot as plt
 import progressbar
 import operator
 from functools import reduce
+import random
+
 
 acc=0
 
@@ -66,10 +68,14 @@ class gcnEnv(gym.Env):
         time_cost_past = 5
 
         # Client graph list and test
-        node_list = list(range(2708))
+        node_list = list(range(3327))
         Client = [None for i in range (self.num_clients)]
+        G = 11
         for i in range(self.num_clients):
-            Client[i] = node_list[i::self.num_clients]
+            if i == 7:
+                Client[i] =np.concatenate((node_list[i::G],node_list[i+1::G],node_list[i+2::G],node_list[i+3::G]),axis=0)
+            else:
+                Client[i] = node_list[i::G]
         list_test = node_list[0::1]
 
         
@@ -132,9 +138,12 @@ class gcnEnv(gym.Env):
         P = [None for i in range (self.num_clients)]
         Time_cost = [None for i in range (self.num_clients)]
         Loss = [None for i in range (self.num_clients)]
-        for i in range(self.num_clients):
+        for i in range(self.num_clients):  
             P[i], Time_cost[i], Loss[i] = runGraph(self.Model[i],self.g,self.args,self.Optimizer[i],\
                 self.labels,self.Train_nid[i],self.norm_local[i],self.features_local[i],self.train_mask_local[i],self.cuda,Batch_sampling_method[i])
+
+                # P[i], Time_cost[i], Loss[i] = runGraph(self.Model[i],self.g,self.args,self.Optimizer[i],\
+                #     self.labels,self.Train_nid[i],self.norm_local[i],self.features_local[i],self.train_mask_local[i],self.cuda,Batch_sampling_method[i])
 
 
 #################################################################################################################################        
@@ -225,7 +234,7 @@ class gcnEnv(gym.Env):
 
 
 
-        reward = pow(2,acc-0.8) - math.log(1 + 45*time_cost)
+        reward = pow(64,acc-0.7) - math.log(1 + 20*time_cost)
         # reward = pow(10,acc-0.8) - 60*time_cost
         # reward = 0 - pow(64,0 - 100*time_cost)
         # reward = pow(64,acc-0.8)
@@ -237,9 +246,6 @@ class gcnEnv(gym.Env):
 
         return S, reward, acc, time_cost
     
-
-
-
 
     def reset(self):
         self.counts = 0
@@ -406,7 +412,7 @@ class GCNInfer(nn.Module):
 # create the subgraph
 def load_cora_data(args, Client, list_test, num_clients):
     # data = RedditDataset(self_loop=True)
-    data = citegrh.load_cora()
+    data = citegrh.load_citeseer()
     features = torch.FloatTensor(data.features)
     labels = torch.LongTensor(data.labels)
     train_mask = torch.BoolTensor(data.train_mask)
@@ -424,6 +430,8 @@ def load_cora_data(args, Client, list_test, num_clients):
     in_feats = features.shape[1]
     n_test_samples = test_mask.int().sum().item()
     n_test_samples_test = n_test_samples
+
+
     features_test = features[list_test]
     norm_test = norm[list_test]
 
@@ -656,9 +664,9 @@ def Gen_args(num):
             help="gpu")
     parser.add_argument("--lr", type=float, default=0.01,
             help="learning rate")
-    parser.add_argument("--n-epochs", type=int, default=200,
+    parser.add_argument("--n-epochs", type=int, default=300,
             help="number of training epochs")
-    parser.add_argument("--batch-size", type=int, default=256,
+    parser.add_argument("--batch-size", type=int, default=512,
             help="batch size")
     parser.add_argument("--test-batch-size", type=int, default=5000,
             help="test batch size")
@@ -697,7 +705,7 @@ if __name__ == '__main__':
     scores_deque = deque(maxlen=print_every)
     scores = []
     max_value = 500
-    for episode in range(200):
+    for episode in range(300):
         # initial env and agent
         if episode == 0:
             state = env.reset()
@@ -735,7 +743,7 @@ if __name__ == '__main__':
             print(action[0:10:1])
             print(action[10::1])
             # print(format(action[10::1],'^20'))
-        if acc >= Cora:
+        if acc >= Citeseer:
             break
         
 
@@ -755,10 +763,10 @@ if __name__ == '__main__':
     dataframe = pd.DataFrame(X, columns=['X'])
     dataframe = pd.concat([dataframe, pd.DataFrame(Y,columns=['Y'])],axis=1)
 
-    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Cora(8)/connection/connection.csv",header = False,index=False,sep=',')
-    dataframes.to_csv("/home/fahao/Py_code/results/GCN-Cora(8)/connection/connection(round).csv",header = False,index=False,sep=',')
-    dataframe_reward.to_csv("/home/fahao/Py_code/results/GCN-Cora(8)/connection/reward-connection.csv",header = False,index=False,sep=',')
-    dataframes_reward.to_csv("/home/fahao/Py_code/results/GCN-Cora(8)/connection/reward-connection(round).csv",header = False,index=False,sep=',')
+    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Citeseer(8)/hete/nonuniform.csv",header = False,index=False,sep=',')
+    dataframes.to_csv("/home/fahao/Py_code/results/GCN-Citeseer(8)/hete/nonuniform(round).csv",header = False,index=False,sep=',')
+    dataframe_reward.to_csv("/home/fahao/Py_code/results/GCN-Citeseer(8)/hete/reward-nonuniform.csv",header = False,index=False,sep=',')
+    dataframes_reward.to_csv("/home/fahao/Py_code/results/GCN-Citeseer(8)/hete/reward-nonuniform(round).csv",header = False,index=False,sep=',')
 
 
 

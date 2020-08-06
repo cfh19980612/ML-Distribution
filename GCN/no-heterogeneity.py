@@ -66,7 +66,7 @@ class gcnEnv(gym.Env):
         time_cost_past = 5
 
         # Client graph list and test
-        node_list = list(range(2708))
+        node_list = list(range(19717))
         Client = [None for i in range (self.num_clients)]
         for i in range(self.num_clients):
             Client[i] = node_list[i::self.num_clients]
@@ -193,8 +193,8 @@ class gcnEnv(gym.Env):
         for infer_param, param in zip(self.infer_model.parameters(), self.Model[0].parameters()):  
             infer_param.data.copy_(param.data)
         # test
-        acc = inference(self.g,self.infer_model,self.args,self.labels,self.test_nid,self.in_feats,\
-            self.n_classes,self.n_test_samples,self.cuda,self.test_batch_sampling_method)
+        acc = inference(self.g_test,self.infer_model,self.args,self.labels_test,self.test_nid_test,self.in_feats,\
+            self.n_classes,self.n_test_samples_test,self.cuda,self.test_batch_sampling_method)
         
         # get state
 #################################################################################################################################
@@ -225,7 +225,7 @@ class gcnEnv(gym.Env):
 
 
 
-        reward = pow(2,acc-0.8) - math.log(1 + 45*time_cost)
+        reward = pow(32,acc-0.8) - math.log(1 + 25*time_cost)
         # reward = pow(10,acc-0.8) - 60*time_cost
         # reward = 0 - pow(64,0 - 100*time_cost)
         # reward = pow(64,acc-0.8)
@@ -406,7 +406,7 @@ class GCNInfer(nn.Module):
 # create the subgraph
 def load_cora_data(args, Client, list_test, num_clients):
     # data = RedditDataset(self_loop=True)
-    data = citegrh.load_cora()
+    data = citegrh.load_pubmed()
     features = torch.FloatTensor(data.features)
     labels = torch.LongTensor(data.labels)
     train_mask = torch.BoolTensor(data.train_mask)
@@ -424,6 +424,8 @@ def load_cora_data(args, Client, list_test, num_clients):
     in_feats = features.shape[1]
     n_test_samples = test_mask.int().sum().item()
     n_test_samples_test = n_test_samples
+
+
     features_test = features[list_test]
     norm_test = norm[list_test]
 
@@ -658,7 +660,7 @@ def Gen_args(num):
             help="learning rate")
     parser.add_argument("--n-epochs", type=int, default=200,
             help="number of training epochs")
-    parser.add_argument("--batch-size", type=int, default=256,
+    parser.add_argument("--batch-size", type=int, default=128,
             help="batch size")
     parser.add_argument("--test-batch-size", type=int, default=5000,
             help="test batch size")
@@ -735,7 +737,7 @@ if __name__ == '__main__':
             print(action[0:10:1])
             print(action[10::1])
             # print(format(action[10::1],'^20'))
-        if acc >= Cora:
+        if acc >= Pubmed:
             break
         
 
@@ -755,10 +757,10 @@ if __name__ == '__main__':
     dataframe = pd.DataFrame(X, columns=['X'])
     dataframe = pd.concat([dataframe, pd.DataFrame(Y,columns=['Y'])],axis=1)
 
-    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Cora(8)/connection/connection.csv",header = False,index=False,sep=',')
-    dataframes.to_csv("/home/fahao/Py_code/results/GCN-Cora(8)/connection/connection(round).csv",header = False,index=False,sep=',')
-    dataframe_reward.to_csv("/home/fahao/Py_code/results/GCN-Cora(8)/connection/reward-connection.csv",header = False,index=False,sep=',')
-    dataframes_reward.to_csv("/home/fahao/Py_code/results/GCN-Cora(8)/connection/reward-connection(round).csv",header = False,index=False,sep=',')
+    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Pubmed(8)/hete/uniform.csv",header = False,index=False,sep=',')
+    dataframes.to_csv("/home/fahao/Py_code/results/GCN-Pubmed(8)/hete/uniform(round).csv",header = False,index=False,sep=',')
+    dataframe_reward.to_csv("/home/fahao/Py_code/results/GCN-Pubmed(8)/hete/reward-uniform.csv",header = False,index=False,sep=',')
+    dataframes_reward.to_csv("/home/fahao/Py_code/results/GCN-Pubmed(8)/hete/reward-uniform(round).csv",header = False,index=False,sep=',')
 
 
 

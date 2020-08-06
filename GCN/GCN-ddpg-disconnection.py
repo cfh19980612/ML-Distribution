@@ -74,7 +74,7 @@ class gcnEnv(gym.Env):
 
         
         # GCN parameter
-        self.g, self.g_test,self.g_local,self.norm_test,self.norm_local,self.features_test,self.features_local,self.test_mask,self.train_mask_local, \
+        self.g, self.g_test,self.g_local,self.norm,self.norm_test,self.norm_local,self.features,self.features_test,self.features_local,self.train_mask,self.test_mask,self.train_mask_local, \
             self.labels, self.labels_test,self.labels_local, self.train_nid, self.Train_nid, self.test_nid, self.test_nid_test, \
                 self.in_feats, self.n_classes, self.n_test_samples, self.n_test_samples_test = load_cora_data(self.args, Client, list_test, self.num_clients)
         
@@ -125,16 +125,16 @@ class gcnEnv(gym.Env):
         # Scale training
         for i in range(self.num_clients):
             for layer in range(self.args.n_layers + 1):
-                for nodes in range(self.g.number_of_nodes()):
-                    temp = math.ceil(self.g.in_degree(nodes) * Layer_scale[i][layer])
+                for nodes in range(self.g_local[i].number_of_nodes()):
+                    temp = math.ceil(self.g_local[i].in_degree(nodes) * Layer_scale[i][layer])
                     Batch_sampling_method[i] = np.append(Batch_sampling_method[i], temp)
 
         P = [None for i in range (self.num_clients)]
         Time_cost = [None for i in range (self.num_clients)]
         Loss = [None for i in range (self.num_clients)]
         for i in range(self.num_clients):
-            P[i], Time_cost[i], Loss[i] = runGraph(self.Model[i],self.g,self.args,self.Optimizer[i],\
-                self.labels,self.Train_nid[i],self.norm_local[i],self.features_local[i],self.train_mask_local[i],self.cuda,Batch_sampling_method[i])
+            P[i], Time_cost[i], Loss[i] = runGraph(self.Model[i],self.g_local[i],self.args,self.Optimizer[i],\
+                self.labels_local[i],self.Train_nid[i],self.norm_local[i],self.features_local[i],self.train_mask_local[i],self.cuda,Batch_sampling_method[i])
 
 
 #################################################################################################################################        
@@ -193,8 +193,8 @@ class gcnEnv(gym.Env):
         for infer_param, param in zip(self.infer_model.parameters(), self.Model[0].parameters()):  
             infer_param.data.copy_(param.data)
         # test
-        acc = inference(self.g,self.infer_model,self.args,self.labels,self.test_nid,self.in_feats,\
-            self.n_classes,self.n_test_samples,self.cuda,self.test_batch_sampling_method)
+        acc = inference(self.g_test,self.infer_model,self.args,self.labels_test,self.test_nid_test,self.in_feats,\
+            self.n_classes,self.n_test_samples_test,self.cuda,self.test_batch_sampling_method)
         
         # get state
 #################################################################################################################################
@@ -245,8 +245,7 @@ class gcnEnv(gym.Env):
         self.counts = 0
         S_local = [None for i in range (self.num_clients)]
         parm = {}
-        for name, parameters in self.Model[0].named_parameters():
-            print(name,':',parameters.size())
+
         s = [None for i in range(self.num_clients)]
         for i in range(self.num_clients):
             parm_local = {}
@@ -424,20 +423,11 @@ def load_cora_data(args, Client, list_test, num_clients):
     in_feats = features.shape[1]
     n_test_samples = test_mask.int().sum().item()
     n_test_samples_test = n_test_samples
+
+
     features_test = features[list_test]
     norm_test = norm[list_test]
 
-    if args.gpu < 0:
-        cuda = False
-    else:
-        cuda = True
-        torch.cuda.set_device(args.gpu)
-        features = features.cuda()
-        labels = labels.cuda()
-        train_mask = train_mask.cuda()
-        #val_mask = val_mask.cuda()
-        test_mask = test_mask.cuda()
-        norm = norm.cuda()
 
     g.ndata['features'] = features
     # num_neighbors = args.num_neighbors
@@ -467,11 +457,18 @@ def load_cora_data(args, Client, list_test, num_clients):
         g_local[i] = g.subgraph(Client[i])
         g_local[i].copy_from_parent()
         g_local[i].readonly()
-        labels_local[i] = labels[Client[i]]
+        labels_local[i] = np.array([])
+        # train_mask_local = np.array([])
+        # features_local = []
+        # norm_local = np.array([])
+
+        labels_local[i] = np.append(labels_local[i],labels[Client[i]])
+        labels_local[i] = torch.LongTensor(labels_local[i])
+
         features_local[i] = features[Client[i]]
         train_mask_local[i] = train_mask[Client[i]]
         norm_local[i] = norm[Client[i]]
-
+    # print ('labels',labels_local)
     # labels1 = labels[list1]
     # labels2 = labels[list2]
     # labels3 = labels[list3]
@@ -493,31 +490,28 @@ def load_cora_data(args, Client, list_test, num_clients):
     for i in range(num_clients):
         for j in range(len(Client[i])):
             if Client[i][j] in train_nid:
-                Train_nid[i].append(Client[i][j])
+                Train_nid[i].append(j)
         Train_nid[i] = np.array(Train_nid[i])
 
 
-    # for i in range(len(Client[0])):
-    #     if Client[0][i] in train_nid:
-    #         train_nid1.append(Client[0][i])
-    # train_nid1 = np.array(train_nid1)
-
-    # for i in range(len(list2)):
-    #     if list2[i] in train_nid:
-    #         train_nid2.append(list2[i])
-    # train_nid2 = np.array(train_nid2)
-
-    # for i in range(len(list3)):
-    #     if list3[i] in train_nid:
-    #         train_nid3.append(list3[i])
-    # train_nid3 = np.array(train_nid3)
+    if args.gpu < 0:
+        cuda = False
+    else:
+        cuda = True
+        torch.cuda.set_device(args.gpu)
+        features = features.cuda()
+        labels = labels.cuda()
+        train_mask = train_mask.cuda()
+        #val_mask = val_mask.cuda()
+        test_mask = test_mask.cuda()
+        norm = norm.cuda()
 
     for i in range(len(list_test)):
         if list_test[i] in test_nid:
             test_nid_test.append(i)
     test_nid_test = np.array(test_nid_test)
 
-    return g, g_test,g_local,norm_test,norm_local,features_test,features_local,test_mask,train_mask_local,labels, labels_test, labels_local, train_nid, Train_nid, test_nid, test_nid_test, in_feats, n_classes, n_test_samples, n_test_samples_test
+    return g, g_test,g_local,norm,norm_test,norm_local,features,features_test,features_local,train_mask,test_mask,train_mask_local,labels, labels_test, labels_local, train_nid, Train_nid, test_nid, test_nid_test, in_feats, n_classes, n_test_samples, n_test_samples_test
 
 # train process
 def runGraph(Model,Graph,args,Optimizer,Labels,train_nid,norm_local,features_local,train_mask_local,cuda,sampling):
@@ -652,9 +646,9 @@ def Gen_args(num):
     register_data_args(parser)
     parser.add_argument("--dropout", type=float, default=0.5,
             help="dropout probability")
-    parser.add_argument("--gpu", type=int, default=0,
+    parser.add_argument("--gpu", type=int, default=-1,
             help="gpu")
-    parser.add_argument("--lr", type=float, default=0.01,
+    parser.add_argument("--lr", type=float, default=0.1,
             help="learning rate")
     parser.add_argument("--n-epochs", type=int, default=200,
             help="number of training epochs")
@@ -755,10 +749,10 @@ if __name__ == '__main__':
     dataframe = pd.DataFrame(X, columns=['X'])
     dataframe = pd.concat([dataframe, pd.DataFrame(Y,columns=['Y'])],axis=1)
 
-    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Cora(8)/connection/connection.csv",header = False,index=False,sep=',')
-    dataframes.to_csv("/home/fahao/Py_code/results/GCN-Cora(8)/connection/connection(round).csv",header = False,index=False,sep=',')
-    dataframe_reward.to_csv("/home/fahao/Py_code/results/GCN-Cora(8)/connection/reward-connection.csv",header = False,index=False,sep=',')
-    dataframes_reward.to_csv("/home/fahao/Py_code/results/GCN-Cora(8)/connection/reward-connection(round).csv",header = False,index=False,sep=',')
+    dataframe.to_csv("/home/fahao/Py_code/results/GCN-Cora(8)/connection/disconnection.csv",header = False,index=False,sep=',')
+    dataframes.to_csv("/home/fahao/Py_code/results/GCN-Cora(8)/connection/disconnection(round).csv",header = False,index=False,sep=',')
+    dataframe_reward.to_csv("/home/fahao/Py_code/results/GCN-Cora(8)/connection/reward-disconnection.csv",header = False,index=False,sep=',')
+    dataframes_reward.to_csv("/home/fahao/Py_code/results/GCN-Cora(8)/connection/reward-disconnection(round).csv",header = False,index=False,sep=',')
 
 
 
